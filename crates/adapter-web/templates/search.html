@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}{{ t.search_heading }} · Democratos{% endblock %}
+{% block content %}
+<h1>{{ t.search_heading }}</h1>
+{% if query != "" %}<p class="muted">{{ t.results_for }} “{{ query }}”</p>{% endif %}
+
+<form method="get" action="/search" class="row" role="search" style="margin-bottom:1rem">
+  <input type="search" name="q" value="{{ query }}" placeholder="{{ t.search_placeholder }}"
+         aria-label="{{ t.search_heading }}" style="flex:1;min-width:0">
+  <select name="scope" aria-label="scope">
+    <option value="all"{% if scope_slug.is_none() %} selected{% endif %}>{{ t.scope_all }}</option>
+    {% match scope_slug %}{% when Some with (s) %}
+      <option value="{{ s }}" selected>{{ t.scope_here }} (d/{{ s }})</option>
+    {% when None %}{% endmatch %}
+  </select>
+  {% match tag %}{% when Some with (tg) %}<input type="hidden" name="tag" value="{{ tg }}">{% when None %}{% endmatch %}
+  <button>{{ t.search_button }}</button>
+</form>
+
+{% match tag %}
+{% when Some with (tg) %}<p class="muted">{{ t.tags_label }}: <span class="chip">#{{ tg }}</span></p>
+{% when None %}{% endmatch %}
+
+{% if !communities.is_empty() %}
+<h2>{{ t.communities_heading }}</h2>
+<ul class="demos">
+{% for d in communities %}
+  <li><a href="/d/{{ d.slug }}"><strong>d/{{ d.slug }}</strong></a> — {{ d.name }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+
+<h2>{{ t.posts_heading }}</h2>
+{% if posts.is_empty() %}<div class="card muted">{{ t.no_results }}</div>{% endif %}
+<div class="feed" data-feed>
+{% for p in posts %}{% call m::search_card(p, t) %}{% endfor %}
+</div>
+{% call m::pager(pager, t) %}
+{% endblock %}

@@ -1,0 +1,79 @@
+# Democratos — Cargo workspace.
+#
+# Architecture: ports & adapters (hexagonal). The crate graph enforces
+# swappability — `domain` and `app` cannot name a database or a web framework,
+# so storage (DB <-> text file) and delivery (web API <-> CLI) are swapped only
+# in the `democratos` composition root.
+[workspace]
+resolver = "2"
+members = [
+    "crates/domain",
+    "crates/app",
+    "crates/adapter-store-memory",
+    "crates/adapter-store-textfile",
+    "crates/adapter-store-postgres",
+    "crates/federation",
+    "crates/adapter-control-etcd",
+    "crates/adapter-federation",
+    "crates/adapter-recommend-memory",
+    "crates/adapter-recommend-disk",
+    "crates/adapter-moderation-local",
+    "crates/adapter-media-local",
+    "crates/adapter-media-s3",
+    "crates/adapter-media-safety",
+    "crates/loadgen",
+    "crates/adapter-web",
+    "crates/adapter-cli",
+    "crates/democratos",
+    "crates/redteam",
+]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+
+[workspace.dependencies]
+# internal crates
+domain = { path = "crates/domain" }
+app = { path = "crates/app" }
+adapter-store-memory = { path = "crates/adapter-store-memory" }
+adapter-store-textfile = { path = "crates/adapter-store-textfile" }
+adapter-store-postgres = { path = "crates/adapter-store-postgres" }
+federation = { path = "crates/federation" }
+adapter-control-etcd = { path = "crates/adapter-control-etcd" }
+adapter-federation = { path = "crates/adapter-federation" }
+adapter-recommend-memory = { path = "crates/adapter-recommend-memory" }
+adapter-recommend-disk = { path = "crates/adapter-recommend-disk" }
+adapter-moderation-local = { path = "crates/adapter-moderation-local" }
+adapter-media-local = { path = "crates/adapter-media-local" }
+adapter-media-s3 = { path = "crates/adapter-media-s3" }
+adapter-media-safety = { path = "crates/adapter-media-safety" }
+adapter-web = { path = "crates/adapter-web" }
+adapter-cli = { path = "crates/adapter-cli" }
+# third-party
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", default-features = false }
+thiserror = "2"
+anyhow = "1"
+axum = "0.7"
+askama = "0.12"
+askama_axum = "0.4"
+clap = { version = "4", features = ["derive", "env"] }
+tower-http = { version = "0.6", features = ["fs"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Release builds target small, low-power boxes (e.g. a Raspberry Pi): optimise
+# for a lean, fast binary. `lto = "thin"` + one codegen unit shrink and speed it
+# up; `strip` drops symbols for a smaller image layer; `panic = "abort"` removes
+# unwinding tables (the server treats a panic as fatal anyway).
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

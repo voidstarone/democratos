@@ -1,0 +1,4 @@
+{# Bare search-results slice for the lazy-loader. #}
+{% import "macros.html" as m %}
+{% for p in posts %}{% call m::search_card(p, t) %}{% endfor %}
+{% call m::pager(pager, t) %}

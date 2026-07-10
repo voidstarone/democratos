@@ -1,0 +1,37 @@
+# cargo-deny configuration — supply-chain / advisory gate for the workspace.
+#
+# There was no dependency-vulnerability scan in the toolchain, so a known-vuln
+# crate version could ship unnoticed. Run this in CI (and locally):
+#
+#   cargo install --locked cargo-deny
+#   cargo deny check
+#
+# `advisories` fails the build on any crate with a RustSec advisory; `bans`
+# flags duplicate/yanked crates; `sources` restricts to crates.io.
+
+[advisories]
+# Pull the latest advisory DB and fail on any vulnerability or unmaintained
+# crate that affects the locked dependency graph.
+yanked = "deny"
+ignore = [
+    # RUSTSEC-2023-0071 — Marvin timing side-channel in `rsa` (no fixed release).
+    # Pulled in transitively by `sqlx-mysql`, which is resolved by the sqlx
+    # metapackage but NOT compiled: adapter-store-postgres enables only
+    # ["runtime-tokio","tls-rustls","postgres"], so the mysql driver and its `rsa`
+    # dependency are never built into any binary. No runtime exposure. Revisit if
+    # a MySQL backend is ever enabled or a fixed `rsa` ships.
+    "RUSTSEC-2023-0071",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+
+[licenses]
+# Keep permissive; tighten to an explicit allow-list when the license policy is
+# settled. Left unset here so `cargo deny check advisories bans sources` — the
+# security-relevant subset — runs cleanly without blocking on license triage.

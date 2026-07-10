@@ -1,0 +1,24 @@
+# etcd implementation of the federation control plane.
+#
+# Backs `federation::OwnershipRegistry` with etcd's lease + compare-and-swap
+# primitives: ownership is a lease the owner heartbeats, epochs are a persistent
+# monotonic counter bumped atomically on each claim (the fencing token), and node
+# public keys + load live under well-known prefixes. etcd is itself an HA,
+# consensus-backed cluster, so the control plane is not a single point of failure.
+[package]
+name = "adapter-control-etcd"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+domain.workspace = true
+federation.workspace = true
+async-trait.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+etcd-client = { version = "0.14", features = ["tls"] }
+
+[dev-dependencies]
+# integration tests drive a real etcd (gated on TEST_ETCD_ENDPOINT)

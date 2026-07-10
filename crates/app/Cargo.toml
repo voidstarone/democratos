@@ -1,0 +1,37 @@
+[package]
+name = "app"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+# The application layer: use-cases + the port traits that adapters implement.
+# Depends on the domain only — never on a concrete store or delivery mechanism.
+[dependencies]
+domain = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+# Password hashing for email/password sign-in. Argon2id is the current
+# best-practice memory-hard KDF. `rand_core`'s `getrandom` feature is what
+# supplies `OsRng` for per-password salts — depend on it explicitly so this
+# crate builds in isolation, not only when another crate happens to enable it.
+argon2 = "0.5"
+rand_core = { version = "0.6", features = ["getrandom"] }
+# Session-cookie signing (see `session.rs`): an HMAC-SHA256 tag over the user id,
+# keyed by a server secret, so a session cookie can't be forged. Same crypto
+# family the RustCrypto stack already pulls in transitively.
+hmac = "0.12"
+sha2 = "0.10"
+# Constant-time equality for comparing secrets (bearer tokens), so a byte-by-byte
+# `==` can't leak the secret through response timing.
+subtle = "2"
+# Ed25519 verification for per-user action signatures (see `identity.rs`). The
+# server only ever *verifies* — the secret half stays on the user's device — so
+# no signing/RNG features are needed here. Same curve the federation node keys use.
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+# Structured logging for the media-ingest pipeline: blocked/preserved uploads and
+# scan-unavailable events must leave a record. Only the `tracing` facade is needed
+# here — the composition root installs a subscriber.
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

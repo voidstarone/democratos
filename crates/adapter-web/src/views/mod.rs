@@ -1,0 +1,33 @@
+//! View models — plain data the templates render. Handlers do the work; the
+//! templates contain no business logic, only presentation. Every view carries a
+//! translated [`Strings`] catalog (`t`) and the active language code (`lang`).
+
+pub mod auth_mode;
+pub mod comment_row;
+pub mod community_option;
+pub mod demos_feed_fragment_view;
+pub mod demos_list_item;
+pub mod demos_view;
+pub mod error_view;
+pub mod feed_fragment_view;
+pub mod found_view;
+pub mod founding_list_item;
+pub mod founding_view;
+pub mod index_view;
+pub mod media_item;
+pub mod pager;
+pub mod post_row;
+pub mod post_view;
+pub mod preferences_view;
+pub mod proposal_view;
+pub mod proposals_view;
+pub mod report_row;
+pub mod reports_view;
+pub mod rule_view;
+pub mod search_fragment_view;
+pub mod search_view;
+pub mod sign_in_view;
+pub mod standing_view;
+pub mod submit_view;
+pub mod top_view;
+pub mod trial_view;

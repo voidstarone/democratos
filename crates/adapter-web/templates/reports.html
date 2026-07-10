@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ t.open_reports_heading }} · d/{{ slug }}{% endblock %}
+{% block content %}
+<p><a href="/d/{{ slug }}">← d/{{ slug }}</a></p>
+<h1>{{ t.open_reports_heading }}</h1>
+{% if reports.is_empty() %}<p class="muted">{{ t.no_open_reports }}</p>{% endif %}
+{% for r in reports %}
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <strong>{{ r.summary }}</strong>
+      <span class="row">{% for reason in r.reasons %}<span class="pill">{{ reason }}</span>{% endfor %}</span>
+    </div>
+    <p class="muted"><small>{{ t.reported_by }} {{ r.reporter }}</small></p>
+    {% match r.on_trial %}
+    {% when Some with (trial_id) %}
+      <a href="/trial/{{ trial_id }}">{{ t.trial_heading }} #{{ trial_id }} →</a>
+    {% when None %}
+      <form method="post" action="/report/{{ r.id }}/trial" class="inline">
+        <button>{{ t.open_trial_button }}</button>
+      </form>
+    {% endmatch %}
+  </div>
+{% endfor %}
+{% endblock %}

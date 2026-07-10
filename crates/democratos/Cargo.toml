@@ -1,0 +1,33 @@
+[package]
+name = "democratos"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "democratos"
+path = "src/main.rs"
+
+# The composition root: the only crate that depends on concrete adapters. It
+# picks a store, a clock, and a delivery mechanism, then wires them together.
+[dependencies]
+domain = { workspace = true }
+app = { workspace = true }
+adapter-web = { workspace = true }
+adapter-cli = { workspace = true }
+adapter-store-memory = { workspace = true }
+adapter-store-textfile = { workspace = true }
+adapter-store-postgres = { workspace = true }
+adapter-federation = { workspace = true }
+adapter-control-etcd = { workspace = true }
+federation = { workspace = true }
+adapter-recommend-memory = { workspace = true }
+adapter-recommend-disk = { workspace = true }
+adapter-moderation-local = { workspace = true }
+adapter-media-local = { workspace = true }
+adapter-media-s3 = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ t.trial_heading }} #{{ id }} · Democratos{% endblock %}
+{% block content %}
+<h1>{{ t.trial_heading }} #{{ id }}</h1>
+<div class="card">
+  <p>{{ t.accused_label }}: <strong>{{ accused }}</strong></p>
+  <p>{{ t.verdict_label }}: <strong>{{ verdict }}</strong></p>
+  <p class="tally">
+    {{ t.guilty_label }} <span class="nay">{{ guilty }}</span> ·
+    {{ t.not_guilty_label }} <span class="aye">{{ not_guilty }}</span>
+  </p>
+  <p class="muted"><small>{{ t.jury_label }}: {% for j in jurors %}{{ j }}{% if !loop.last %}, {% endif %}{% endfor %}</small></p>
+</div>
+
+{% if open %}
+  {% if viewer_is_juror %}
+  <div class="card">
+    <p>{{ t.you_are_juror }}</p>
+    <form method="post" action="/trial/{{ id }}/vote" class="row">
+      <button name="verdict" value="guilty">{{ t.vote_guilty }}</button>
+      <button name="verdict" value="notguilty" class="ok">{{ t.vote_not_guilty }}</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="muted">{{ t.not_a_juror }}</p>
+  {% endif %}
+{% endif %}
+{% endblock %}

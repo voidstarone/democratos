@@ -1,0 +1,28 @@
+# The federation apply/produce bridge — where authenticity + authorization meet
+# the store. Transport-agnostic on purpose: the HTTP server/client that carries
+# events is a thin layer over `Replicator::ingest` and `changes_since`.
+[package]
+name = "adapter-federation"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+domain.workspace = true
+app.workspace = true
+federation.workspace = true
+adapter-store-postgres.workspace = true
+serde_json.workspace = true
+serde = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tracing = { workspace = true }
+# node-to-node HTTP client; rustls so a node never falls back to system OpenSSL.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+[dev-dependencies]
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres"] }
+adapter-recommend-memory = { workspace = true }
+adapter-moderation-local = { workspace = true }
+adapter-media-local = { workspace = true }

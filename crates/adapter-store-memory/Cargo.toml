@@ -1,0 +1,19 @@
+[package]
+name = "adapter-store-memory"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+# A driven adapter: in-memory implementation of every store port. Used for tests
+# and ephemeral dev runs. Swappable with any other store implementation.
+[dependencies]
+domain = { workspace = true }
+app = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+adapter-recommend-memory = { workspace = true }
+adapter-moderation-local = { workspace = true }
+# Stands in for a user's device-held secret key when signing test actions.
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }

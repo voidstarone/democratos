@@ -1,0 +1,103 @@
+//! Search use-case tests through the `Services` facade. Exercises site-wide vs
+//! scoped search, community matching, and the tag filter.
+
+use std::sync::Arc;
+
+use adapter_moderation_local::{AutoApproveAgeVerifier, HeuristicNsfwScanner};
+use adapter_recommend_memory::MemoryRecommender;
+use adapter_store_memory::{FixedClock, MemoryStore};
+use app::{SearchScope, Services};
+use domain::Timestamp;
+
+fn build() -> Services {
+    let store = Arc::new(MemoryStore::new());
+    let clock = Arc::new(FixedClock::at(Timestamp(1_000)));
+    Services {
+        users: store.clone(),
+        demoi: store.clone(),
+        foundings: store.clone(),
+        memberships: store.clone(),
+        proposals: store.clone(),
+        votes: store.clone(),
+        rules: store.clone(),
+        posts: store.clone(),
+        comments: store.clone(),
+        reports: store.clone(),
+        trials: store.clone(),
+        post_votes: store.clone(),
+        comment_votes: store.clone(),
+        media: store,
+        recommender: Arc::new(MemoryRecommender::default()),
+        nsfw_scanner: Arc::new(HeuristicNsfwScanner),
+        age_verifier: Arc::new(AutoApproveAgeVerifier),
+        requires_age_verification: false,
+        require_signatures: false,
+        clock,
+    }
+}
+
+#[tokio::test]
+async fn search_site_wide_scoped_and_by_tag() {
+    let svc = build();
+    let alice = svc.register_user("alice").await.unwrap();
+    let rust = svc
+        .found_demos(alice.id, "rust", "Rustaceans")
+        .await
+        .unwrap();
+    let go = svc.found_demos(alice.id, "go", "Gophers").await.unwrap();
+
+    svc.create_post(
+        alice.id,
+        rust.id,
+        "Borrow checker tips",
+        "all about lifetimes",
+        vec![],
+        vec!["beginner".into()],
+    )
+    .await
+    .unwrap();
+    svc.create_post(
+        alice.id,
+        go.id,
+        "Goroutines 101",
+        "concurrency basics",
+        vec![],
+        vec!["beginner".into()],
+    )
+    .await
+    .unwrap();
+
+    // Site-wide: "rust" matches the community by name/slug.
+    let r = svc.search("rust", SearchScope::All, None).await.unwrap();
+    assert_eq!(r.communities.len(), 1);
+
+    // A title token matches exactly one post.
+    let r = svc.search("borrow", SearchScope::All, None).await.unwrap();
+    assert_eq!(r.posts.len(), 1);
+    assert_eq!(r.posts[0].title, "Borrow checker tips");
+
+    // Scoped search stays within one community (and never returns communities).
+    let r = svc
+        .search("concurrency", SearchScope::Demos(go.id), None)
+        .await
+        .unwrap();
+    assert_eq!(r.posts.len(), 1);
+    assert!(r.communities.is_empty());
+    let r = svc
+        .search("concurrency", SearchScope::Demos(rust.id), None)
+        .await
+        .unwrap();
+    assert!(r.posts.is_empty());
+
+    // Tag filter, site-wide, with no text query: both posts share the tag.
+    let r = svc
+        .search("", SearchScope::All, Some("beginner"))
+        .await
+        .unwrap();
+    assert_eq!(r.posts.len(), 2);
+    let r = svc
+        .search("", SearchScope::All, Some("advanced"))
+        .await
+        .unwrap();
+    assert!(r.posts.is_empty());
+}

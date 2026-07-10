@@ -1,0 +1,18 @@
+# Keep the build context small — critical on a Pi's slow storage. The image is
+# built from source inside the builder stage, so ship only what cargo needs.
+target/
+**/*.recindex
+democratos.json
+media/
+.git/
+.github/
+*.md
+docs/
+.claude/
+# Secrets & deploy configs must not enter even the *builder* layer (Dockerfile
+# does `COPY . .` into the builder). .env holds the session secret / cluster
+# token / node seeds; deploy/ ships example compose creds.
+.env
+.env.*
+deploy/
+reddit.json

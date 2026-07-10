@@ -1,0 +1,33 @@
+# Public reverse proxy for the Democratos federation.
+#
+# It load-balances end-user HTTP across the app nodes. Every node can serve any
+# READ from its local replica, so requests spread freely; a WRITE that lands on
+# a non-owner node is forwarded to the owner internally over the federation
+# network (never through this proxy). The federation feed/command ports (7400)
+# are deliberately absent here — they must stay on the internal network.
+#
+# This listens on :80 inside the container (published as :8080 by compose). For
+# a real deployment, put your domain in place of `:80` and Caddy will obtain and
+# renew TLS certificates automatically:
+#
+#   democratos.example.org {
+#       reverse_proxy node1:3000 node2:3000 { ... }
+#   }
+
+:80 {
+	encode gzip
+
+	reverse_proxy node1:3000 node2:3000 {
+		# Spread load; a node that fails its health check is taken out of
+		# rotation until it recovers (this is app-node failover at the edge,
+		# distinct from community rehoming in the control plane).
+		lb_policy round_robin
+		health_uri /
+		health_interval 10s
+		health_timeout 3s
+
+		# If the chosen node can't serve, try the other before erroring.
+		lb_try_duration 5s
+		fail_duration 15s
+	}
+}

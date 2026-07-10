@@ -1,0 +1,11 @@
+[package]
+name = "domain"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+# The domain is pure. It may serialize its types (so adapters can persist or
+# render them) but it pulls in NO I/O, async runtime, or framework.
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }

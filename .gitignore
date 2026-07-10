@@ -1,0 +1,17 @@
+
+# federation test harness runtime state
+deploy/test/.run/
+
+# --- runtime secrets & user data (never commit; this project is forked & self-hosted) ---
+# Env files hold the session secret, cluster token, node seeds, DB/S3 creds.
+.env
+.env.*
+!.env.example
+# The text-store data file contains user emails and Argon2 password hashes.
+democratos.json
+# Derived recommender indexes and uploaded media.
+*.recindex
+media/
+# Build artifacts.
+target/
+.DS_Store

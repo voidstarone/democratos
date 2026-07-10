@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}d/{{ slug }} · Democratos{% endblock %}
+{% block head %}
+<style>
+  /* Community page is a two-column Reddit-style layout: the post feed leads,
+     community info sits in a sidebar. It collapses to one column (feed first)
+     on narrow screens. */
+  main { max-width: 1080px; }
+  .community-head { margin-bottom: 1rem; }
+  .community-head h1 { margin: .25rem 0 .15rem; }
+  .community { display: grid; gap: 1.25rem; grid-template-columns: 1fr; align-items: start; }
+  @media (min-width: 860px) { .community { grid-template-columns: minmax(0,1fr) 300px; } }
+  .feed, .aside { display: flex; flex-direction: column; gap: .85rem; min-width: 0; }
+  /* Inner container the posts live in (and lazy-appended cards join), kept as its
+     own flex column so card spacing matches the surrounding feed column. */
+  .post-feed { display: flex; flex-direction: column; gap: .85rem; }
+  .feed > h2 { margin: .4rem 0 -.1rem; font-size: 1.15rem; }
+  .feed .card, .aside .card { margin: 0; }
+  .feed-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .create-post { display: inline-block; padding: .4rem 1rem; border-radius: 999px;
+                 background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; font-size: .95rem; }
+  .create-post:hover { filter: brightness(1.08); }
+  /* Post-row, title, meta and thumb come from base.html; only the
+     community-page extras and a larger thumbnail are page-specific. */
+  .post-item { padding: .85rem 1rem; }
+  .post-actions { margin-top: .5rem; }
+  button.small { padding: .15rem .6rem; font-size: .82rem; }
+  .thumb img, .thumb video { width: 72px; height: 72px; }
+  .sidebar-search { display: flex; gap: .4rem; }
+  .sidebar-search input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 6px; }
+  .composer .field { display: flex; flex-direction: column; gap: .5rem; }
+  .composer input, .composer select { width: 100%; }
+  .aside h3 { margin-top: 0; }
+  .aside .card ol, .aside .card ul { margin: .4rem 0 .6rem; padding-left: 1.2rem; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="community-head">
+  <p><a href="/">{{ t.back_all }}</a></p>
+  <h1>d/{{ slug }} <span class="pill">{{ phase }}</span></h1>
+  <p class="muted">{{ name }} · {{ voters }} {{ t.voters_label }} ·
+    <a href="/d/{{ slug }}/proposals">{{ t.proposals_link }}</a> ·
+    <a href="/d/{{ slug }}/reports">{{ t.reports_link }}</a></p>
+</div>
+
+<div class="community">
+  <!-- Main feed: posts are the hero, governance proposals follow. -->
+  <div class="feed">
+    <div class="feed-bar">
+      <h2>{{ t.posts_heading }}</h2>
+      {% if viewer_can_post %}
+      <a class="create-post" href="/submit?demos={{ slug }}">{{ t.create_post_link }}</a>
+      {% endif %}
+    </div>
+    {% if posts.is_empty() %}<div class="card muted">{{ t.no_posts }}</div>{% endif %}
+    <div class="post-feed" data-feed>
+    {% for p in posts %}{% call m::demos_card(p, t, slug, viewer_is_voter) %}{% endfor %}
+    </div>
+    {% call m::pager(pager, t) %}
+
+    <p class="muted"><a href="/d/{{ slug }}/proposals">{{ t.proposals_link }} →</a></p>
+  </div>
+
+  <!-- Sidebar: search, your standing, rules, franchise criteria. -->
+  <aside class="aside">
+    <div class="card">
+      <h3>{{ t.search_here }}</h3>
+      <form method="get" action="/search" class="sidebar-search" role="search">
+        <input type="search" name="q" placeholder="{{ t.search_placeholder }}" aria-label="{{ t.search_here }}">
+        <input type="hidden" name="scope" value="{{ slug }}">
+        <button class="ghost">{{ t.search_button }}</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3>{{ t.standing_heading }}</h3>
+      {% match standing %}
+      {% when Some with (s) %}
+        {% if !s.joined %}
+          <p>{{ t.not_member }}</p>
+          <form method="post" action="/d/{{ slug }}/join"><button>{{ t.join_button }}</button></form>
+        {% else %}
+          <p>{{ t.tier_label }} <strong>{{ s.tier }}</strong> · {{ t.contribution_label }} <strong>{{ s.contribution }}</strong></p>
+          {% if s.is_voter %}
+            <p class="muted">{{ t.you_are_voter }}</p>
+          {% else %}
+            {% if s.eligible %}
+              <p>{{ t.you_meet_criteria }}</p>
+              {% match s.queued_note %}
+              {% when Some with (note) %}<p class="unmet">{{ note }}</p>
+              {% when None %}{% endmatch %}
+              <form method="post" action="/d/{{ slug }}/enfranchise"><button>{{ t.request_voter }}</button></form>
+            {% else %}
+              <p>{{ t.not_eligible }}</p>
+              <ul class="unmet">{% for u in s.unmet %}<li>{{ u }}</li>{% endfor %}</ul>
+            {% endif %}
+          {% endif %}
+        {% endif %}
+      {% when None %}
+        <p class="muted">{{ t.signin_participate }}</p>
+      {% endmatch %}
+    </div>
+
+    <div class="card">
+      <h3>{{ t.rules_heading }}</h3>
+      {% if rules.is_empty() %}<p class="muted">{{ t.no_rules }}</p>{% endif %}
+      <ol>{% for r in rules %}<li>{{ r.text }}</li>{% endfor %}</ol>
+      {% if viewer_is_voter %}
+      <p class="muted"><small><a href="/d/{{ slug }}/proposals">{{ t.proposals_link }} →</a></small></p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h3>{{ t.criteria_heading }}</h3>
+      <p class="muted">{{ t.criteria_intro }}</p>
+      <ul>
+        <li>{{ t.li_account_age }} <strong>{{ criteria_age }}</strong> {{ t.days }}</li>
+        <li>{{ t.li_membership }} <strong>{{ criteria_member }}</strong> {{ t.days }}</li>
+        <li>{{ t.li_contribution }} <strong>{{ criteria_contrib }}</strong></li>
+      </ul>
+      {% if can_amend %}
+        <p class="muted"><small>{{ t.can_amend_note }}</small></p>
+      {% else %}
+        <p class="muted"><small>{{ t.training_wheels_note }}</small></p>
+      {% endif %}
+    </div>
+  </aside>
+</div>
+{% endblock %}

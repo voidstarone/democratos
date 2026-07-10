@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{{ t.found_heading }} · Democratos{% endblock %}
+{% block head %}
+<style>
+  .found { max-width: 560px; }
+  .found-form { display: flex; flex-direction: column; gap: .7rem; margin-top: .5rem; }
+  .found-form input { width: 100%; }
+  /* The derived-slug preview: hidden until JS mirrors the server's slugify as
+     the founder types. No JS → no preview, and the server still derives the
+     slug on submit. */
+  .slug-preview { margin: .1rem 0 0; font-size: .9rem; }
+  .slug-preview strong { font-family: var(--display); }
+</style>
+{% endblock %}
+{% block content %}
+<div class="found">
+<h1>{{ t.found_heading }}</h1>
+{% match current_user %}
+{% when Some with (_h) %}
+  <form method="post" action="/foundings" class="found-form" data-enhance="slugify">
+    <input name="name" placeholder="{{ t.name_placeholder }}" required autofocus
+           autocomplete="off" maxlength="80">
+    <p class="muted slug-preview" hidden>{{ t.found_slug_hint }} <strong></strong></p>
+    <div><button>{{ t.founding_start_button }}</button></div>
+  </form>
+  <p class="muted"><small>{{ t.founding_needs_note }}</small></p>
+{% when None %}
+  <p class="muted"><a href="/signin">{{ t.signin_to_found }}</a></p>
+{% endmatch %}
+</div>
+{% endblock %}

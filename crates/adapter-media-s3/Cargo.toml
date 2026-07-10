@@ -1,0 +1,16 @@
+[package]
+name = "adapter-media-s3"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+app = { workspace = true }
+async-trait = { workspace = true }
+# S3-compatible object store client. `rust-s3` targets any S3 API (AWS, MinIO,
+# Ceph, Backblaze) and supports the path-style addressing MinIO needs. rustls so
+# there is no OpenSSL system dependency on the small target boxes.
+rust-s3 = { version = "0.35", default-features = false, features = ["tokio-rustls-tls"] }
+
+[dev-dependencies]
+tokio = { workspace = true }

@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Error · Democratos{% endblock %}
+{% block content %}
+<h1>{{ t.error_heading }}</h1>
+<div class="card">
+  <p class="unmet">{{ message }}</p>
+</div>
+<p><a href="/">{{ t.back_communities }}</a></p>
+{% endblock %}

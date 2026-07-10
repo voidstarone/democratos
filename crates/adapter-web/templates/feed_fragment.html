@@ -1,0 +1,5 @@
+{# Bare post-feed slice for the lazy-loader: cards then the next-page control,
+   with no page chrome. The client appends the cards and follows the control. #}
+{% import "macros.html" as m %}
+{% for p in posts %}{% call m::post_card(p, t) %}{% endfor %}
+{% call m::pager(pager, t) %}

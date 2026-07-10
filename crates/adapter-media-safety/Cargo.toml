@@ -1,0 +1,25 @@
+[package]
+name = "adapter-media-safety"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+# Local, self-contained implementations of the media-safety ports: an image
+# re-encoding sanitizer (defeats malicious media) and a known-hash CSAM scanner
+# with a filesystem quarantine (preserves blocked uploads). All run on a single
+# small box; the scanner is swappable for an external classifier at the port.
+[dependencies]
+domain = { workspace = true }
+app = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+# Decode/re-encode of uploaded images. Only the four still-image codecs we accept
+# are compiled in — no default formats — to keep the binary small on a Raspberry
+# Pi. Video (mp4/webm) is not decoded here; it is structurally validated instead.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+# SHA-256 for exact-match hashing and content-addressed quarantine filenames — the
+# same crate the media key already uses.
+sha2 = "0.10"
+
+[dev-dependencies]
+tokio = { workspace = true }

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ t.preferences_heading }} · Democratos{% endblock %}
+{% block head %}
+<style>
+  .pref-group { border: 1px solid var(--line); border-radius: 12px; padding: 1rem 1.1rem; margin: 0 0 1rem; }
+  .pref-group legend { font-weight: 600; padding: 0 .4rem; }
+  .pref-option { display: flex; gap: .6rem; align-items: flex-start; padding: .5rem 0; }
+  .pref-option + .pref-option { border-top: 1px solid var(--line); }
+  .pref-option input { margin-top: .25rem; }
+  .pref-option .label { font-weight: 600; }
+  .pref-option .desc { color: var(--muted); font-size: .9rem; margin: .1rem 0 0; }
+  .pref-saved { color: var(--ok); font-weight: 600; }
+</style>
+{% endblock %}
+{% block content %}
+<h1>{{ t.preferences_heading }}</h1>
+{% if saved %}<p class="pref-saved">{{ t.pref_saved }}</p>{% endif %}
+
+<form method="post" action="/preferences">
+  <fieldset class="pref-group">
+    <legend>{{ t.pref_feed_heading }}</legend>
+    <p class="muted">{{ t.pref_feed_desc }}</p>
+
+    <label class="pref-option">
+      <input type="radio" name="feed_paging" value="auto"{% if feed_paging == "auto" %} checked{% endif %}>
+      <span>
+        <span class="label">{{ t.pref_auto }}</span>
+        <p class="desc">{{ t.pref_auto_desc }}</p>
+      </span>
+    </label>
+
+    <label class="pref-option">
+      <input type="radio" name="feed_paging" value="lazy"{% if feed_paging == "lazy" %} checked{% endif %}>
+      <span>
+        <span class="label">{{ t.pref_lazy }}</span>
+        <p class="desc">{{ t.pref_lazy_desc }}</p>
+      </span>
+    </label>
+
+    <label class="pref-option">
+      <input type="radio" name="feed_paging" value="pages"{% if feed_paging == "pages" %} checked{% endif %}>
+      <span>
+        <span class="label">{{ t.pref_pages }}</span>
+        <p class="desc">{{ t.pref_pages_desc }}</p>
+      </span>
+    </label>
+  </fieldset>
+
+  <button type="submit">{{ t.save_button }}</button>
+</form>
+{% endblock %}

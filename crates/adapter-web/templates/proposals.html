@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}{{ t.proposals_heading }} · d/{{ slug }}{% endblock %}
+{% block head %}
+<style>
+  main { max-width: 760px; }
+  .governance { display: flex; flex-direction: column; gap: .85rem; }
+  .governance h2 { margin: .6rem 0 -.1rem; font-size: 1.15rem; }
+  .gov-form .field { display: flex; flex-direction: column; gap: .5rem; }
+  .gov-form label { font-size: .9rem; }
+  .gov-form input, .gov-form select { border: 1px solid var(--line); border-radius: 6px; padding: .35rem .5rem; }
+  .settings-now { color: var(--muted); font-size: .9rem; }
+</style>
+{% endblock %}
+{% block content %}
+<p><a href="/d/{{ slug }}">← d/{{ slug }}</a></p>
+<h1>{{ t.proposals_heading }} <span class="pill">{{ phase }}</span></h1>
+<p class="settings-now">{{ t.posting_policy_current }} <strong>{{ posting_policy }}</strong></p>
+
+<div class="governance">
+  {% if proposals.is_empty() %}<div class="card muted">{{ t.no_proposals }}</div>{% endif %}
+  {% for p in proposals %}
+  <div class="card" data-proposal="{{ p.id }}">
+    <div class="row" style="justify-content:space-between">
+      <strong>{{ p.title }}</strong>
+      <span><span class="pill">{{ p.class }}</span> {{ p.status }}</span>
+    </div>
+    <p class="tally">{{ t.aye }} <span class="aye">{{ p.aye }}</span> · {{ t.nay }} <span class="nay">{{ p.nay }}</span></p>
+    {% if p.open %}
+      {% if viewer_is_voter %}
+      <form method="post" action="/p/{{ p.id }}/vote" class="row" data-enhance="vote">
+        <button name="choice" value="aye" class="ok">{{ t.vote_aye }}</button>
+        <button name="choice" value="nay" class="ghost">{{ t.vote_nay }}</button>
+      </form>
+      {% endif %}
+      <form method="post" action="/p/{{ p.id }}/close" class="inline">
+        <button class="ghost">{{ t.close_tally }}</button>
+      </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  {% if viewer_is_voter %}
+  <h2>{{ t.propose_rule_heading }}</h2>
+  <div class="card gov-form">
+    <form method="post" action="/d/{{ slug }}/rules" class="field">
+      <input name="text" placeholder="{{ t.rule_text_placeholder }}" required>
+      <div><button>{{ t.propose_button }}</button></div>
+    </form>
+  </div>
+
+  <h2>{{ t.posting_policy_heading }}</h2>
+  <div class="card gov-form">
+    <form method="post" action="/d/{{ slug }}/posting-policy" class="field">
+      <label>{{ t.posting_policy_who }}
+        <select name="policy">
+          <option value="open"{% if posting_policy_kind == "open" %} selected{% endif %}>{{ t.policy_open }}</option>
+          <option value="members"{% if posting_policy_kind == "members" %} selected{% endif %}>{{ t.policy_members }}</option>
+          <option value="voters"{% if posting_policy_kind == "voters" %} selected{% endif %}>{{ t.policy_voters }}</option>
+          <option value="min"{% if posting_policy_kind == "min" %} selected{% endif %}>{{ t.policy_min }}</option>
+        </select>
+      </label>
+      <label>{{ t.policy_threshold }}
+        <input type="number" name="threshold" min="0" value="{{ posting_policy_threshold }}" style="width:6rem">
+      </label>
+      <div><button>{{ t.open_button }}</button></div>
+    </form>
+  </div>
+
+  {% if can_amend %}
+  <h2>{{ t.amend_heading }}</h2>
+  <div class="card gov-form">
+    <form method="post" action="/d/{{ slug }}/proposals/amend" class="row">
+      <label>{{ t.label_age }} <input type="number" name="min_account_age_days" value="{{ criteria_age }}" style="width:5rem"></label>
+      <label>{{ t.label_member }} <input type="number" name="min_membership_days" value="{{ criteria_member }}" style="width:5rem"></label>
+      <label>{{ t.label_contrib }} <input type="number" name="min_contribution" value="{{ criteria_contrib }}" style="width:5rem"></label>
+      <button>{{ t.open_button }}</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="muted"><small>{{ t.training_wheels_note }}</small></p>
+  {% endif %}
+  {% else %}
+  <p class="muted">{{ t.signin_participate }}</p>
+  {% endif %}
+</div>
+{% endblock %}

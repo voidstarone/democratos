@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Democratos{% endblock %}</title>
+<style>
+  :root {
+    --ink:#14201b; --muted:#5f6b66; --line:#e4e8e6;
+    --accent:#0a7d5a; --accent-ink:#086048; --accent-soft:#e3f5ee;
+    --ok:#2b8a3e; --bad:#a50e0e; --bad-soft:#fbeaea;
+    --bg:#f6f7f5; --surface:#fff;
+    /* Elevation: two soft, tinted shadows read as depth without a hard edge. */
+    --shadow-sm:0 1px 2px rgba(20,32,27,.04), 0 1px 3px rgba(20,32,27,.05);
+    --shadow-md:0 6px 18px -6px rgba(20,32,27,.12), 0 2px 6px rgba(20,32,27,.05);
+    /* A civic serif for headings — institutional gravitas, all system fonts so
+       there is no web-font request on the self-hosted boxes this ships to. */
+    --display:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,ui-serif,serif;
+    --ease:cubic-bezier(.2,.7,.2,1); --dur:.18s;
+  }
+  * { box-sizing: border-box; }
+  body { font: 16px/1.55 system-ui, sans-serif; color: var(--ink); margin: 0; background:var(--bg);
+         -webkit-font-smoothing:antialiased; }
+  header { display:flex; align-items:center; gap:.5rem 1rem;
+           padding:.75rem 1.25rem; border-bottom:1px solid var(--line); background:var(--surface);
+           box-shadow:var(--shadow-sm); flex-wrap:wrap; position:sticky; top:0; z-index:10; }
+  header a { color: var(--accent-ink); text-decoration:none; }
+  .brand { font-family:var(--display); font-size:1.2rem; letter-spacing:.01em; white-space:nowrap; }
+  /* Push the auth/lang cluster to the right edge. Using auto-margin instead of
+     justify-content:space-between keeps each cluster intact and avoids the
+     uneven gaps space-between creates once items wrap onto a second line. */
+  .header-actions { margin-left:auto; }
+  main { max-width: 760px; margin: 1.5rem auto; padding: 0 1.25rem; }
+  /* Content links take the brand green, not browser blue, so the whole page
+     reads as one palette. Specific components (.post-title, .chip) override. */
+  main a { color: var(--accent-ink); text-decoration:none;
+           transition:color var(--dur) var(--ease); }
+  main a:hover { text-decoration:underline; }
+  h1,h2,h3 { font-family:var(--display); line-height:1.2; letter-spacing:.005em; font-weight:600; }
+  h1 { font-size:1.7rem; } h2 { font-size:1.3rem; } h3 { font-size:1.05rem; }
+  small, .muted { color: var(--muted); }
+  form.inline { display:inline; }
+  input, select, button { font: inherit; padding:.4rem .55rem; }
+  input, select { border:1px solid var(--line); border-radius:6px; background:var(--surface);
+                  transition:border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+  input:hover, select:hover { border-color:#cfd6d2; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  input:focus-visible, select:focus-visible { outline:none; border-color:var(--accent);
+                  box-shadow:0 0 0 3px var(--accent-soft); }
+  button { cursor:pointer; border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:6px;
+           font-weight:500; transition:filter var(--dur) var(--ease), transform var(--dur) var(--ease),
+           opacity var(--dur) var(--ease); }
+  button:hover { filter:brightness(1.07); }
+  button:active { transform:translateY(1px); }
+  button:disabled { opacity:.5; cursor:default; filter:none; transform:none; }
+  button.ghost { background:var(--surface); color:var(--accent-ink); }
+  button.ghost:hover { background:var(--accent-soft); filter:none; }
+  button.ok { border-color:var(--ok); background:var(--ok); color:#fff; }
+  .card { border:1px solid var(--line); border-radius:12px; padding:1rem 1.25rem; margin:.75rem 0;
+          background:var(--surface); box-shadow:var(--shadow-sm); }
+  .pill { display:inline-block; font-size:.72rem; font-weight:600; letter-spacing:.03em; text-transform:uppercase;
+          padding:.15rem .55rem; border-radius:999px; background:var(--accent-soft); color:var(--accent-ink); }
+  .tally .aye { color:var(--ok); font-weight:600; }
+  .tally .nay { color:var(--bad); font-weight:600; }
+  .unmet { color:var(--bad); margin:.25rem 0 0 1rem; }
+  .row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
+  ul.demos { list-style:none; padding:0; }
+  ul.demos li { padding:.5rem 0; border-bottom:1px solid var(--line); }
+  .nav-link { font-weight:600; white-space:nowrap; }
+  .header-search { flex:1 1 200px; min-width:0; max-width:420px; }
+  .header-search input[type=search] { flex:1; min-width:0; border:1px solid var(--line); border-radius:6px; }
+  input, select, button { max-width:100%; }
+  .chips { display:flex; flex-wrap:wrap; gap:.35rem; margin:.4rem 0 0; }
+  .chip { display:inline-block; font-size:.78rem; padding:.1rem .55rem; border-radius:999px;
+          background:var(--accent-soft); color:var(--accent-ink); text-decoration:none;
+          transition:background var(--dur) var(--ease), color var(--dur) var(--ease); }
+  .chip:hover { background:var(--accent); color:#fff; }
+  .votebox { display:flex; flex-direction:column; align-items:center; gap:.05rem; }
+  .votebox button, .votebox .up, .votebox .down { background:none; border:none; cursor:pointer;
+    color:var(--muted); font-size:1rem; line-height:1; padding:.05rem .2rem; border-radius:4px;
+    transition:color var(--dur) var(--ease), transform var(--dur) var(--ease); }
+  .votebox button.up:hover, .votebox button.down:hover { transform:scale(1.18); }
+  .votebox.readonly .up, .votebox.readonly .down { cursor:default; }
+  .votebox button.up:hover { color:var(--ok); }
+  .votebox button.down:hover { color:var(--bad); }
+  .votebox button.up.active { color:var(--ok); }
+  .votebox button.down.active { color:var(--bad); }
+  .votebox .score { font-weight:600; font-size:.85rem; color:var(--ink); }
+  /* Feedback motion: the number bumps and the arrow springs when a vote lands,
+     so casting a vote is visibly confirmed. Triggered by a transient class from
+     app.js, never on first paint. */
+  /* inline-block so the scale actually applies — transforms are ignored on
+     inline spans, which is what .score/.aye/.nay are. */
+  .pulse { display:inline-block; animation:pulse .32s var(--ease); }
+  @keyframes pulse { 35% { transform:scale(1.32); } }
+  @keyframes rise { from { opacity:0; transform:translateY(4px); } }
+  /* Submission rows — a vote gutter on the left, title + meta to the right
+     (Reddit/Raddle layout). Shared by every feed and the single-post page so
+     the post design stays identical everywhere. */
+  .feed-item, .post-item { padding:.75rem 1rem;
+    transition:box-shadow var(--dur) var(--ease),
+               border-color var(--dur) var(--ease); }
+  .feed-item:hover, .post-item:hover { box-shadow:var(--shadow-md); border-color:#d4dcd7; }
+  /* Feed container + pagination controls. The home/top/search feeds stack their
+     cards; the community feed sets its own flex spacing. */
+  .feed > .card, .feed > .feed-item { margin-bottom:.85rem; }
+  /* "Load more": a full-width link that reads as a button. Doubles as the no-JS
+     next-page link and the lazy-loader's hook. */
+  .feed-more { display:block; text-align:center; margin:1rem 0; padding:.6rem 1rem;
+    border:1px solid var(--line); border-radius:10px; text-decoration:none; font-weight:600;
+    color:var(--accent-ink); background:var(--surface);
+    transition:border-color var(--dur) var(--ease), background var(--dur) var(--ease); }
+  .feed-more:hover { border-color:#cfd6d2; background:var(--accent-soft); text-decoration:none; }
+  /* Paged prev/next row (the "always paged" preference, and no-JS fallback). */
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin:1rem 0; }
+  .pager a { font-weight:600; text-decoration:none; }
+  .pager .pager-next { margin-left:auto; }
+  .post-row { display:flex; gap:.75rem; align-items:flex-start; }
+  .votes { flex:0 0 auto; }
+  .post-main { min-width:0; }
+  .post-title { font-size:1.05rem; font-weight:600; color:var(--ink); text-decoration:none;
+                transition:color var(--dur) var(--ease); }
+  .post-title:hover { color:var(--accent-ink); }
+  /* Disclosures (report, reply) reveal their contents with a small rise rather
+     than snapping open. */
+  details[open] > *:not(summary) { animation:rise .2s var(--ease); }
+  .reported { animation:rise .25s var(--ease); }
+  .post-meta { margin:.3rem 0 0; }
+  .thumb img, .thumb video { width:56px; height:56px; object-fit:cover; border-radius:8px; display:block; background:var(--line); }
+  /* A one-line body preview under a feed card's title. */
+  .snippet { margin:.25rem 0 0; color:var(--muted); font-size:.9rem;
+             overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* Prominent "+ Post" action in the top bar. */
+  .create-post-nav { background:var(--accent); color:#fff; padding:.3rem .8rem; border-radius:999px;
+                     font-weight:600; text-decoration:none; white-space:nowrap; }
+  .create-post-nav:hover { filter:brightness(1.08); color:#fff; }
+  /* In-page composer: the "+ Post" link opens the /submit composer in this modal
+     dialog instead of navigating (progressive enhancement — no JS still loads
+     the full page). */
+  .composer-dialog { border:none; border-radius:16px; padding:0; width:min(680px,94vw);
+                     max-height:90vh; overflow:auto; background:var(--surface); color:var(--ink);
+                     box-shadow:var(--shadow-md); }
+  .composer-dialog::backdrop { background:rgba(20,32,27,.45); }
+  .composer-panel { position:relative; padding:1.25rem 1.5rem 1.5rem; }
+  .composer-panel h1 { margin-top:.25rem; }
+  .composer-close { position:absolute; top:.7rem; right:.7rem; line-height:1; padding:.2rem .55rem; }
+  /* On narrow viewports give the search its own full-width row beneath the
+     brand/nav/auth controls, so nothing has to cram onto a single line. */
+  @media (max-width: 640px) {
+    header { gap:.5rem .75rem; padding:.6rem .9rem; }
+    .header-search { order:99; flex-basis:100%; max-width:none; }
+    .header-actions { margin-left:auto; }
+  }
+  /* Motion is confirmation, never decoration — honour a reduced-motion request
+     by dropping every transition and keyframe while keeping all end states. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration:.001ms !important; animation-iteration-count:1 !important;
+      transition-duration:.001ms !important; scroll-behavior:auto !important; }
+  }
+</style>
+{% block head %}{% endblock %}
+</head>
+<body>
+<header>
+  <a href="/" class="brand"><strong>{{ t.brand }}</strong></a>
+  <a href="/top" class="nav-link">{{ t.top_link }}</a>
+  <form method="get" action="/search" class="inline row header-search" role="search">
+    <input type="search" name="q" placeholder="{{ t.search_placeholder }}" aria-label="{{ t.search_heading }}">
+    <input type="hidden" name="scope" value="all">
+    <button class="ghost">{{ t.search_button }}</button>
+  </form>
+  <span class="row header-actions">
+  {% match current_user %}
+  {% when Some with (handle) %}
+    <a href="/submit" class="nav-link create-post-nav" data-enhance="composer">{{ t.new_post_button }}</a>
+    <span class="muted">{{ t.signed_in_as }} <strong>{{ handle }}</strong></span>
+    <a href="/preferences" class="nav-link">{{ t.preferences_link }}</a>
+    <form method="post" action="/logout" class="inline"><button class="ghost">{{ t.log_out }}</button></form>
+  {% when None %}
+    <a href="/signin" class="nav-link">{{ t.sign_in_register }}</a>
+  {% endmatch %}
+    <form method="post" action="/lang" class="inline">
+      <select name="lang" data-autosubmit aria-label="language">
+        <option value="en"{% if lang == "en" %} selected{% endif %}>EN</option>
+        <option value="es"{% if lang == "es" %} selected{% endif %}>ES</option>
+      </select>
+      <noscript><button class="ghost">OK</button></noscript>
+    </form>
+  </span>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+<script src="/static/app.js" defer></script>
+<script src="/static/dev.js" defer></script>
+</body>
+</html>

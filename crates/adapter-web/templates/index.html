@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}{{ t.communities }} · Democratos{% endblock %}
+{% block content %}
+{% match current_user %}
+{% when Some with (_h) %}
+<h1>{{ t.feed_heading }}</h1>
+{% when None %}
+<h1>{{ t.top_heading }}</h1>
+<p class="muted">{{ t.tagline }}</p>
+{% endmatch %}
+
+{% if feed.is_empty() %}
+<div class="card muted">{% match current_user %}{% when Some with (_h) %}{{ t.feed_empty }}{% when None %}{{ t.top_empty }}{% endmatch %}</div>
+{% endif %}
+<div class="feed" data-feed>
+{% for p in feed %}{% call m::post_card(p, t) %}{% endfor %}
+</div>
+{% call m::pager(pager, t) %}
+
+<h2>{{ t.communities_heading }}</h2>
+{% if demos.is_empty() %}
+  <p>{{ t.no_communities }} {% match current_user %}{% when Some with (_h) %}{{ t.found_first_in }}{% when None %}{{ t.found_first_signed_out }}{% endmatch %}</p>
+{% else %}
+<ul class="demos">
+{% for d in demos %}
+  <li class="row" style="justify-content:space-between">
+    <span><a href="/d/{{ d.slug }}"><strong>d/{{ d.slug }}</strong></a> — {{ d.name }}</span>
+    <span class="muted"><span class="pill">{{ d.phase }}</span> {{ d.voters }} {{ t.voters_label }}</span>
+  </li>
+{% endfor %}
+</ul>
+{% endif %}
+
+{% if !foundings.is_empty() %}
+<h2>{{ t.founding_pending_heading }}</h2>
+<ul class="demos">
+{% for f in foundings %}
+  <li class="row" style="justify-content:space-between">
+    <span><a href="/found/{{ f.id }}"><strong>{{ f.name }}</strong></a> — d/{{ f.slug }}</span>
+    <span class="muted"><span class="pill">{{ t.founding_pill }}</span> {{ f.signed }} / {{ f.required }} {{ t.founding_signoffs_label }}</span>
+  </li>
+{% endfor %}
+</ul>
+{% endif %}
+
+<h2>{{ t.found_heading }}</h2>
+{% match current_user %}
+{% when Some with (_h) %}
+  <p><a href="/found" class="nav-link create-post-nav">{{ t.found_button }}</a></p>
+  <p class="muted"><small>{{ t.founder_note }}</small></p>
+{% when None %}
+  <p class="muted"><a href="/signin">{{ t.signin_to_found }}</a></p>
+{% endmatch %}
+{% endblock %}

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}{{ t.top_heading }} · Democratos{% endblock %}
+{% block content %}
+<h1>{{ t.top_heading }}</h1>
+{% if posts.is_empty() %}<div class="card muted">{{ t.top_empty }}</div>{% endif %}
+<div class="feed" data-feed>
+{% for p in posts %}{% call m::post_card(p, t) %}{% endfor %}
+</div>
+{% call m::pager(pager, t) %}
+{% endblock %}

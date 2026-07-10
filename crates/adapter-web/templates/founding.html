@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}d/{{ slug }} · {{ t.founding_pill }} · Democratos{% endblock %}
+{% block head %}
+<style>
+  .founding { max-width: 560px; }
+  /* Progress toward quorum: a filled bar plus the "N / 9" count. */
+  .founding-progress { display: flex; align-items: center; gap: .6rem; margin: .4rem 0 1rem; }
+  .founding-bar { flex: 1; height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+  .founding-bar span { display: block; height: 100%; background: var(--accent);
+                       transition: width var(--dur) var(--ease); }
+  .founding-count { font-weight: 600; white-space: nowrap; }
+  /* The shareable link, laid out for one-tap select/copy. */
+  .share { display: flex; gap: .4rem; margin: .5rem 0; }
+  .share input { flex: 1; min-width: 0; font: inherit; padding: .45rem .5rem;
+                 border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--muted); }
+</style>
+{% endblock %}
+{% block content %}
+<div class="founding">
+<p class="muted"><a href="/">{{ t.back_communities }}</a></p>
+<h1>{{ name }}</h1>
+<p class="muted"><span class="pill">{{ t.founding_pill }}</span> d/{{ slug }} · {{ t.founding_started_by }} {{ founder }}</p>
+
+<div class="founding-progress">
+  <div class="founding-bar" aria-hidden="true">
+    {# Width in percent of quorum. Integer maths keeps it template-only. #}
+    <span style="width: {% if required > 0 %}{{ signed * 100 / required }}{% else %}0{% endif %}%"></span>
+  </div>
+  <span class="founding-count">{{ signed }} / {{ required }} {{ t.founding_signoffs_label }}</span>
+</div>
+
+{% if is_founder %}
+  <p>{{ t.founding_share_hint }}</p>
+  <div class="share">
+    {# app.js upgrades this relative path to an absolute shareable URL and wires
+       select-all-on-focus — no inline script/handler, so CSP forbids inline JS. #}
+    <input id="share-url" type="text" value="/found/{{ id }}" readonly
+           aria-label="{{ t.founding_share_hint }}">
+  </div>
+{% else if viewer_signed %}
+  <p class="muted">{{ t.founding_you_signed }}</p>
+{% else if can_sign %}
+  <form method="post" action="/found/{{ id }}/sign">
+    <button>{{ t.sign_off_button }}</button>
+  </form>
+{% else %}
+  <p class="muted"><a href="/signin">{{ t.founding_signin_to_sign }}</a></p>
+{% endif %}
+
+<p class="muted"><small>{{ t.founding_needs_note }}</small></p>
+</div>
+{% endblock %}

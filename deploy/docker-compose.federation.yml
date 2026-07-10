@@ -1,0 +1,200 @@
+# Democratos — multi-node FEDERATION deployment.
+#
+# A community-sharded cluster: each node has its OWN Postgres (its source of
+# truth for the communities it owns) and all nodes share ONE object store and
+# ONE control plane. Reads are served from a node's local replica; writes
+# (especially votes) forward to the owning node; if a node goes down its
+# communities rehome onto a quieter node.
+#
+#   ┌─────────── public :8080 ───────────┐
+#   │              caddy                  │   reverse proxy, load-balances reads
+#   └───────┬───────────────────┬────────┘
+#           ▼                   ▼
+#        node1  ⇄ federation ⇄ node2        feed (replicate) + command (forward)
+#        │ :7400 (node-only)   │ :7400        on an INTERNAL network only
+#        ▼                     ▼
+#        db1                   db2            per-node source-of-truth Postgres
+#           \                 /
+#            ├─ etcd ─────────┤               ownership leases + epoch fencing
+#            └─ minio ────────┘               shared media bucket (any node serves)
+#
+#   docker compose -f deploy/docker-compose.federation.yml up -d --build
+#   docker compose -f deploy/docker-compose.federation.yml logs -f node1 node2
+#
+# SECURITY (see deploy/README.md):
+#   * The federation ports (7400) are on an internal network and NEVER published.
+#   * Nodes authenticate to each other with DEMOCRATOS_CLUSTER_TOKEN and sign
+#     every replicated event with their per-node Ed25519 seed (DEMOCRATOS_NODE_SEED).
+#   * All secrets are read from the environment (a git-ignored `.env` beside this
+#     file — see deploy/.env.example) and the compose REFUSES to start if any is
+#     unset, so nothing runs with a committed/known credential. Generate them with
+#     `head -c32 /dev/urandom | xxd -p -c32`.
+#   * The node-to-node links (peer feed + etcd) run over plaintext HTTP on the
+#     isolated `fabric` network, so DEMOCRATOS_ALLOW_PLAINTEXT_FEDERATION is set
+#     to satisfy the app's TLS-required-for-remotes guard. For a hardened / multi-
+#     host deployment, terminate TLS on those links and drop that override.
+
+x-node-common: &node-common
+  build:
+    context: ..
+    dockerfile: Dockerfile
+  image: democratos:latest
+  restart: unless-stopped
+  environment: &node-env
+    DEMOCRATOS_STORE: postgres
+    DEMOCRATOS_MEDIA: s3
+    DEMOCRATOS_S3_ENDPOINT: http://minio:9000
+    DEMOCRATOS_S3_BUCKET: democratos-media
+    # Path-style is required for MinIO.
+    DEMOCRATOS_S3_PATH_STYLE: "true"
+    AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in deploy/.env}
+    AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in deploy/.env}
+    DEMOCRATOS_ADDR: 0.0.0.0:3000
+    DEMOCRATOS_FEDERATION_ADDR: 0.0.0.0:7400
+    DEMOCRATOS_ETCD_ENDPOINTS: http://etcd:2379
+    DEMOCRATOS_CLUSTER_TOKEN: ${DEMOCRATOS_CLUSTER_TOKEN:?set DEMOCRATOS_CLUSTER_TOKEN in deploy/.env}
+    # The peer feed and etcd links are plaintext on the isolated `fabric` network;
+    # opt into the app's remote-plaintext exception (harden with TLS for multi-host).
+    DEMOCRATOS_ALLOW_PLAINTEXT_FEDERATION: "1"
+    DEMOCRATOS_RECOMMEND_INDEX: /tmp/democratos.recindex
+    DEMOCRATOS_REFRESH_SECS: "120"
+  tmpfs:
+    - /tmp:size=64m
+  networks:
+    - fabric   # internal: db + federation + control plane + media
+    - edge     # public-facing (reached only by the reverse proxy)
+
+services:
+  # --- control plane ---------------------------------------------------------
+  etcd:
+    image: gcr.io/etcd-development/etcd:v3.5.16
+    restart: unless-stopped
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd0
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd:2379
+    volumes:
+      - etcd-data:/etcd-data
+    networks: [fabric]
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # --- shared media object store --------------------------------------------
+  minio:
+    image: minio/minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in deploy/.env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in deploy/.env}
+    volumes:
+      - minio-data:/data
+    networks: [fabric]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # --- per-node source-of-truth databases ------------------------------------
+  db1:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/.env}
+      POSTGRES_DB: democratos
+    volumes:
+      - db1-data:/var/lib/postgresql/data
+    networks: [fabric]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d democratos"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  db2:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/.env}
+      POSTGRES_DB: democratos
+    volumes:
+      - db2-data:/var/lib/postgresql/data
+    networks: [fabric]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d democratos"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # --- app nodes -------------------------------------------------------------
+  node1:
+    <<: *node-common
+    environment:
+      <<: *node-env
+      DEMOCRATOS_NODE_ID: "1"
+      DATABASE_URL: postgres://app:${DB_PASSWORD}@db1:5432/democratos
+      DEMOCRATOS_NODE_SEED: ${NODE1_SEED:?set NODE1_SEED in deploy/.env}
+    # node1 replicates from node2's feed. --peer is repeatable; add one per peer.
+    command: ["serve", "--peer", "2=http://node2:7400"]
+    depends_on:
+      db1: {condition: service_healthy}
+      etcd: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 3s
+      start_period: 20s
+      retries: 3
+
+  node2:
+    <<: *node-common
+    environment:
+      <<: *node-env
+      DEMOCRATOS_NODE_ID: "2"
+      DATABASE_URL: postgres://app:${DB_PASSWORD}@db2:5432/democratos
+      DEMOCRATOS_NODE_SEED: ${NODE2_SEED:?set NODE2_SEED in deploy/.env}
+    command: ["serve", "--peer", "1=http://node1:7400"]
+    depends_on:
+      db2: {condition: service_healthy}
+      etcd: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 3s
+      start_period: 20s
+      retries: 3
+
+  # --- public reverse proxy --------------------------------------------------
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "8080:80"        # the ONLY published port — the public entry point
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    networks: [edge]
+    depends_on: [node1, node2]
+
+networks:
+  # `fabric` carries DB traffic, the federation feed/command RPC, etcd, and
+  # media — it is never published, so those ports stay off the public internet.
+  fabric:
+    internal: false   # needs egress for image pulls; see README to harden.
+  # `edge` connects only the reverse proxy to the app nodes' public web port.
+  edge: {}
+
+volumes:
+  etcd-data:
+  minio-data:
+  db1-data:
+  db2-data:

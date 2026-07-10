@@ -1,0 +1,18 @@
+[package]
+name = "adapter-store-textfile"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+# A driven adapter that persists the entire dataset to a single human-readable
+# JSON file. Demonstrates that "the database" is just another port implementation
+# — swap this for SQLite/Postgres without touching domain or app.
+[dependencies]
+domain = { workspace = true }
+app = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

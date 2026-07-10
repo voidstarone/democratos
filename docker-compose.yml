@@ -1,0 +1,124 @@
+# Democratos — single-box deployment (e.g. a Raspberry Pi).
+#
+# Everything runs in one container today. The seams for growing into separate
+# services are sketched (commented) below: because the app talks to its store,
+# media, and recommender only through ports, "grow" means adding a service here
+# and flipping an env var — no application code changes.
+#
+#   docker compose up -d          # start
+#   docker compose logs -f app    # watch (incl. the background model rebuilds)
+
+services:
+  app:
+    image: democratos:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Durable state lives on the mounted volume; the recommender index is
+      # derived/disposable and goes to RAM (tmpfs) to spare the SD card.
+      DEMOCRATOS_STORE: file
+      DEMOCRATOS_DATA: /data/democratos.json
+      # Media hosting — opt IN or OUT (a slow/storage-light box can opt out):
+      #   local  (default) → host media on THIS box, under DEMOCRATOS_MEDIA_DIR.
+      #                       Its host location is configurable via MEDIA_DIR below.
+      #   none             → host NO media: uploads are refused and media URLs 404.
+      #                       Text/governance still work; this box carries no media
+      #                       weight. Best for the small, slow Pi.
+      #   s3               → store nothing locally; delegate to a shared object
+      #                       store on ANOTHER box. Also set the DEMOCRATOS_S3_*
+      #                       block below to point at that box's MinIO/S3 bucket, so
+      #                       media still displays without this box hosting it.
+      DEMOCRATOS_MEDIA: "${DEMOCRATOS_MEDIA:-local}"
+      # In-container path for the `local` backend. The HOST location it maps to is
+      # set by MEDIA_DIR in the volumes section (default: a managed `media` volume;
+      # point it at a big external drive to grow media without touching the rest).
+      DEMOCRATOS_MEDIA_DIR: /data/media
+      # For DEMOCRATOS_MEDIA=s3 (delegate media to another box's bucket), uncomment
+      # and fill in — no local media is stored then:
+      # DEMOCRATOS_S3_ENDPOINT: "http://big-pi.local:9000"
+      # DEMOCRATOS_S3_BUCKET: democratos-media
+      # DEMOCRATOS_S3_PATH_STYLE: "true"
+      # AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-}"
+      # AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:-}"
+      DEMOCRATOS_RECOMMEND_INDEX: /tmp/democratos.recindex
+      DEMOCRATOS_ADDR: 0.0.0.0:3000
+      # Sign session cookies with a stable secret so sessions survive restarts
+      # (and verify across nodes in a federated deployment). LEFT UNSET on purpose:
+      # a committed default value would be world-known and let anyone forge a
+      # session cookie for any account (the cookie is `uid.exp.HMAC(secret,…)`), so
+      # shipping one is worse than shipping none. With it unset the server uses a
+      # secure random per-process key (sessions just reset on restart). To make
+      # sessions durable, set your OWN long random value via an env file — never a
+      # committed literal — e.g. in a local `.env` (git-ignored):
+      #   DEMOCRATOS_SESSION_SECRET=$(openssl rand -hex 32)
+      # The server refuses to start on a non-loopback bind if this is a
+      # `CHANGE_ME…` placeholder or shorter than 16 chars.
+      DEMOCRATOS_SESSION_SECRET: "${DEMOCRATOS_SESSION_SECRET:-}"
+      # Mark the session cookie `Secure` once traffic is TLS-terminated. This
+      # single-box compose publishes plain HTTP on :3000, so it is left off here;
+      # enable it (and put this behind TLS, e.g. the Caddy in deploy/) before
+      # exposing the app to a network.
+      # DEMOCRATOS_SECURE_COOKIES: "1"
+      # Low-power box: rebuild the model less often (staleness bound, not a fixed
+      # cost — an unchanged electorate makes this a cheap version check).
+      DEMOCRATOS_REFRESH_SECS: "300"
+    volumes:
+      - data:/data          # governance state (JSON) — must survive restarts
+      # Media on its OWN volume so it can live on a different, bigger disk than the
+      # governance state. Leave MEDIA_DIR unset to use the managed `media` volume;
+      # set MEDIA_DIR=/mnt/your-drive/media (an absolute path) to bind media onto a
+      # large external drive. Unused when DEMOCRATOS_MEDIA is `none` or `s3`.
+      - "${MEDIA_DIR:-media}:/data/media"
+    tmpfs:
+      - /tmp:size=64m        # recommender index + scratch, in RAM
+    # Pi-sized resource guards. Tune to your model (a Pi 4 has 4 cores; a 2GB
+    # model should lower mem_limit). Prevents one runaway from taking the box.
+    mem_limit: 512m
+    cpus: "2.0"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  data:
+  media:
+
+# ---------------------------------------------------------------------------
+# GROWTH PATH (still one box, or spread across boxes later) — all opt-in, all
+# without touching domain/app/use-cases:
+#
+#   * Shared SQL store: add a `postgres` service with its own volume, write an
+#     `adapter-store-postgres` behind the existing Store ports, and set e.g.
+#     DEMOCRATOS_STORE=postgres + DATABASE_URL=postgres://app@db/democratos.
+#     This also removes the SD-thrashing whole-file rewrite the text store does.
+#
+#   * Separate recommender: run the rebuild/serve loop as its own service behind
+#     a networked SimilarityIndex adapter, so the CPU-heavy model work scales and
+#     redeploys independently of the governance core. Point the app at it via
+#     DEMOCRATOS_RECOMMENDER_URL.
+#
+#   * Object-store media: swap LocalMediaStore for an S3/MinIO adapter so any
+#     node serves uploads.
+#
+# Example skeleton (commented):
+#
+# db:
+#   image: postgres:16-alpine
+#   restart: unless-stopped
+#   environment:
+#     POSTGRES_USER: app
+#     POSTGRES_DB: democratos
+#     POSTGRES_HOST_AUTH_METHOD: trust
+#   volumes:
+#     - db:/var/lib/postgresql/data
+#
+# volumes:
+#   db:
+# ---------------------------------------------------------------------------

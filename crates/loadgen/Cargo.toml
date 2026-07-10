@@ -1,0 +1,25 @@
+[package]
+name = "loadgen"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+# A load/correctness driver for a running Democratos federation. Not part of the
+# server; a test tool that seeds data straight into a node's Postgres (reusing
+# the real store, so IDs/outbox are correct) and then hammers the cluster's HTTP
+# vote path across nodes, checking invariants and reporting latency/throughput.
+[[bin]]
+name = "loadgen"
+path = "src/main.rs"
+
+[dependencies]
+domain = { workspace = true }
+app = { workspace = true }
+adapter-store-postgres = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }

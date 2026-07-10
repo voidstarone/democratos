@@ -1,0 +1,4 @@
+{# Bare community-feed slice for the lazy-loader. #}
+{% import "macros.html" as m %}
+{% for p in posts %}{% call m::demos_card(p, t, slug, viewer_is_voter) %}{% endfor %}
+{% call m::pager(pager, t) %}

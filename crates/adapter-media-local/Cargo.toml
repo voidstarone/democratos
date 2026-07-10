@@ -1,0 +1,13 @@
+[package]
+name = "adapter-media-local"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+# A driven adapter: local-filesystem implementation of the MediaStore port.
+# Swapping this for a CDN/object-store adapter is one line in the composition
+# root — the rest of the system only ever sees the URL `put` returns.
+
+[dependencies]
+app = { workspace = true }
+async-trait = { workspace = true }

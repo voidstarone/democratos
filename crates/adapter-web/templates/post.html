@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · Democratos{% endblock %}
+{% block head %}
+<style>
+  .media img, .media video { max-width: 100%; max-height: 70vh; border-radius: 8px; display: block; }
+  .comment summary { cursor: pointer; color: var(--accent); font-size: .85rem; list-style: none; }
+  .comment summary::-webkit-details-marker { display: none; }
+  .comment details { margin-top: .5rem; }
+  .comment details form { margin-top: .5rem; }
+  /* Reporting is a low-key disclosure, not a prominent card: a small muted
+     link that expands to the rule picker only when clicked. */
+  .report { margin: .75rem 0; }
+  .report > summary { display: inline-block; cursor: pointer; color: var(--muted);
+                      font-size: .85rem; list-style: none; }
+  .report > summary::-webkit-details-marker { display: none; }
+  .report > summary:hover { color: var(--accent); }
+  .report[open] > summary { margin-bottom: .5rem; }
+  .report select, .report button { font-size: .85rem; padding: .2rem .5rem; }
+  .report .reported { color: var(--ok); font-size: .85rem; margin: .25rem 0; }
+</style>
+{% endblock %}
+{% block content %}
+<p><a href="/d/{{ demos_slug }}">← d/{{ demos_slug }}</a></p>
+<div class="post-row" style="margin:.25rem 0 .75rem">
+  <div class="votes" data-post="{{ id }}">
+    {% if votable %}
+    <form method="post" action="/post/{{ id }}/vote" class="votebox" data-enhance="postvote">
+      <button name="dir" value="up" class="up{% if voted_up %} active{% endif %}" aria-label="{{ t.upvote_aria }}">▲</button>
+      <span class="score">{{ score }}</span>
+      <button name="dir" value="down" class="down{% if voted_down %} active{% endif %}" aria-label="{{ t.downvote_aria }}">▼</button>
+    </form>
+    {% else %}
+    <div class="votebox readonly"><span class="up">▲</span><span class="score">{{ score }}</span><span class="down">▼</span></div>
+    {% endif %}
+  </div>
+  <div class="post-main">
+    <h1 style="margin:0">{{ title }} <span class="pill">{{ kind_label }}</span>
+      {% if removed %}<span class="muted">{{ t.removed_label }}</span>{% endif %}
+      {% if is_nsfw %}<span class="pill">{{ t.nsfw_label }}</span>{% endif %}
+    </h1>
+    <p class="muted post-meta" style="margin:.35rem 0 0"><small>{{ t.by_label }} {{ author }}</small></p>
+  </div>
+</div>
+
+{% if body != "" %}
+<div class="card">{{ body }}</div>
+{% endif %}
+
+{% for m in media %}
+<div class="card media">
+  {% if m.is_video %}
+  <video src="{{ m.url }}" controls></video>
+  {% else %}
+  <img src="{{ m.url }}" alt="{{ m.caption }}" loading="lazy">
+  {% endif %}
+  {% if m.caption != "" %}<p class="muted" style="margin:.5rem 0 0"><small>{{ m.caption }}</small></p>{% endif %}
+</div>
+{% endfor %}
+
+{% if !tags.is_empty() %}
+<div class="chips">
+  {% for tg in tags %}<a class="chip" href="/search?tag={{ tg }}">#{{ tg }}</a>{% endfor %}
+</div>
+{% endif %}
+
+<div class="row" style="margin:.6rem 0">
+  {% if viewer_is_voter && !removed %}
+  <form method="post" action="/d/{{ demos_slug }}/proposals/remove" class="inline">
+    <input type="hidden" name="target" value="{{ title }}">
+    <button class="ghost">{{ t.propose_removal }}</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if viewer_can_post && !rules.is_empty() %}
+<details class="report">
+  <summary>{{ t.report_heading }}</summary>
+  <form method="post" action="/post/{{ id }}/report" class="row"
+        data-enhance="report" data-done="{{ t.report_thanks }}">
+    <select name="rule" aria-label="{{ t.report_note_placeholder }}" required>
+      <option value="" disabled selected>{{ t.report_note_placeholder }}</option>
+      {% for r in rules %}<option value="{{ r.id }}">{{ r.text }}</option>{% endfor %}
+    </select>
+    <button class="ghost">{{ t.report_button }}</button>
+  </form>
+</details>
+{% endif %}
+
+<h2>{{ t.comments_heading }}</h2>
+{% if comments.is_empty() %}<p class="muted">{{ t.no_comments }}</p>{% endif %}
+{% for c in comments %}
+  <div class="card comment" style="margin-left: {{ c.depth }}rem">
+    <div class="post-row">
+      <div class="votes" data-comment="{{ c.id }}">
+        {% if c.votable && !c.removed %}
+        <form method="post" action="/comment/{{ c.id }}/vote" class="votebox" data-enhance="postvote">
+          <button name="dir" value="up" class="up{% if c.voted_up %} active{% endif %}" aria-label="{{ t.upvote_aria }}">▲</button>
+          <span class="score">{{ c.score }}</span>
+          <button name="dir" value="down" class="down{% if c.voted_down %} active{% endif %}" aria-label="{{ t.downvote_aria }}">▼</button>
+        </form>
+        {% else %}
+        <div class="votebox readonly"><span class="up">▲</span><span class="score">{{ c.score }}</span><span class="down">▼</span></div>
+        {% endif %}
+      </div>
+      <div class="post-main">
+        <div class="muted"><small>{{ t.by_label }} {{ c.author }}</small></div>
+        {% if c.removed %}<em class="muted">{{ t.removed_label }}</em>{% else %}{{ c.body }}{% endif %}
+        {% if viewer_can_post && !c.removed %}
+        <details>
+          <summary>{{ t.reply_label }}</summary>
+          <form method="post" action="/post/{{ id }}/comments" class="row">
+            <input type="hidden" name="parent" value="{{ c.id }}">
+            <input name="body" placeholder="{{ t.reply_placeholder }}" required style="flex:1">
+            <button class="ghost">{{ t.reply_button }}</button>
+          </form>
+        </details>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+{% endfor %}
+
+{% if viewer_can_post %}
+<div class="card">
+  <form method="post" action="/post/{{ id }}/comments" class="row">
+    <input name="body" placeholder="{{ t.reply_placeholder }}" required style="flex:1">
+    <button>{{ t.reply_button }}</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

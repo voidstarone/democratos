@@ -1,0 +1,121 @@
+{# Shared feed building blocks, so the post card and the pager are defined once
+   and reused by every feed page and its lazy-load fragment. #}
+
+{# One submission card: vote gutter + title/meta/thumb. Identical everywhere so
+   the post design stays consistent across the home, /top and community feeds. #}
+{% macro post_card(p, t) %}
+<div class="card feed-item">
+  <div class="post-row">
+    <div class="votes" data-post="{{ p.id }}">
+      {% if p.votable %}
+      <form method="post" action="/post/{{ p.id }}/vote" class="votebox" data-enhance="postvote">
+        <button name="dir" value="up" class="up{% if p.voted_up %} active{% endif %}" aria-label="{{ t.upvote_aria }}">▲</button>
+        <span class="score">{{ p.score }}</span>
+        <button name="dir" value="down" class="down{% if p.voted_down %} active{% endif %}" aria-label="{{ t.downvote_aria }}">▼</button>
+      </form>
+      {% else %}
+      <div class="votebox readonly"><span class="up">▲</span><span class="score">{{ p.score }}</span><span class="down">▼</span></div>
+      {% endif %}
+    </div>
+    {% match p.thumb %}{% when Some with (url) %}
+    <a href="/post/{{ p.id }}" class="thumb">
+      {% if p.thumb_is_video %}<video src="{{ url }}" muted preload="metadata"></video>{% else %}<img src="{{ url }}" alt="" loading="lazy">{% endif %}
+    </a>
+    {% when None %}{% endmatch %}
+    <div class="post-main">
+      <a href="/post/{{ p.id }}" class="post-title">{{ p.title }}</a>
+      {% if p.snippet != "" %}<p class="snippet">{{ p.snippet }}</p>{% endif %}
+      <p class="muted post-meta">
+        {% match p.community %}{% when Some with (slug) %}<a href="/d/{{ slug }}">d/{{ slug }}</a> · {% when None %}{% endmatch %}
+        <span class="pill">{{ p.kind }}</span> {{ t.by_label }} {{ p.author }}
+      </p>
+      {% if !p.tags.is_empty() %}
+      <div class="chips">{% for tg in p.tags %}<a class="chip" href="/search?tag={{ tg }}">#{{ tg }}</a>{% endfor %}</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+{# A community-page post card: like the feed card but with the larger `.post-item`
+   thumb and, for a voter, the "propose removal" action. `slug` and `is_voter`
+   drive that action; kept a macro so a lazily-appended card matches the first. #}
+{% macro demos_card(p, t, slug, is_voter) %}
+<div class="card post-item">
+  <div class="post-row">
+    <div class="votes" data-post="{{ p.id }}">
+      {% if p.votable %}
+      <form method="post" action="/post/{{ p.id }}/vote" class="votebox" data-enhance="postvote">
+        <button name="dir" value="up" class="up{% if p.voted_up %} active{% endif %}" aria-label="{{ t.upvote_aria }}">▲</button>
+        <span class="score">{{ p.score }}</span>
+        <button name="dir" value="down" class="down{% if p.voted_down %} active{% endif %}" aria-label="{{ t.downvote_aria }}">▼</button>
+      </form>
+      {% else %}
+      <div class="votebox readonly"><span class="up">▲</span><span class="score">{{ p.score }}</span><span class="down">▼</span></div>
+      {% endif %}
+    </div>
+    {% match p.thumb %}{% when Some with (url) %}
+    <a href="/post/{{ p.id }}" class="thumb">
+      {% if p.thumb_is_video %}<video src="{{ url }}" muted preload="metadata"></video>{% else %}<img src="{{ url }}" alt="" loading="lazy">{% endif %}
+    </a>
+    {% when None %}{% endmatch %}
+    <div class="post-main">
+      <a href="/post/{{ p.id }}" class="post-title">{{ p.title }}</a>
+      {% if p.snippet != "" %}<p class="snippet">{{ p.snippet }}</p>{% endif %}
+      <p class="muted post-meta">
+        <span class="pill">{{ p.kind }}</span>
+        {{ t.by_label }} {{ p.author }}
+        {% if p.removed %}· {{ t.removed_label }}{% endif %}
+        {% if p.is_nsfw %}· <span class="pill">{{ t.nsfw_label }}</span>{% endif %}
+      </p>
+      {% if !p.tags.is_empty() %}
+      <div class="chips">
+        {% for tg in p.tags %}<a class="chip" href="/search?tag={{ tg }}">#{{ tg }}</a>{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% if is_voter && !p.removed %}
+  <form method="post" action="/d/{{ slug }}/proposals/remove" class="post-actions">
+    <input type="hidden" name="target" value="{{ p.title }}">
+    <button class="ghost small">{{ t.propose_removal }}</button>
+  </form>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{# A search result: title + score/kind/author line + tags. Read-only (search
+   spans communities the viewer may not belong to), so no vote gutter. #}
+{% macro search_card(p, t) %}
+<div class="card">
+  <a href="/post/{{ p.id }}" style="font-weight:600;text-decoration:none;color:var(--ink)">{{ p.title }}</a>
+  <p class="muted" style="margin:.3rem 0 0">
+    <strong>{{ p.score }}</strong> · <span class="pill">{{ p.kind }}</span> {{ t.by_label }} {{ p.author }}
+    {% if p.removed %}· {{ t.removed_label }}{% endif %}
+    {% if p.is_nsfw %}· <span class="pill">{{ t.nsfw_label }}</span>{% endif %}
+  </p>
+  {% if !p.tags.is_empty() %}
+  <div class="chips">
+    {% for tg in p.tags %}<a class="chip" href="/search?tag={{ tg }}">#{{ tg }}</a>{% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{# The pager. In "pages" mode it is plain prev/next links (a full navigation).
+   Otherwise it is a single "load more" link — a real href so a no-JS click still
+   loads the next page, and the hook the lazy-loader upgrades into infinite
+   scroll. `data-mode` tells the script whether to always lazy-load ("lazy") or
+   to defer to the reduced-motion hint ("auto"). #}
+{% macro pager(pg, t) %}
+{% if pg.mode == "pages" %}
+<nav class="pager" aria-label="pagination">
+  {% match pg.prev_href %}{% when Some with (h) %}<a class="pager-prev" href="{{ h }}" rel="prev">← {{ t.prev_page }}</a>{% when None %}{% endmatch %}
+  {% match pg.next_href %}{% when Some with (h) %}<a class="pager-next" href="{{ h }}" rel="next">{{ t.next_page }} →</a>{% when None %}{% endmatch %}
+</nav>
+{% else %}
+{% match pg.next_href %}{% when Some with (h) %}
+<a class="feed-more" href="{{ h }}" rel="next" data-enhance="more" data-mode="{{ pg.mode }}">{{ t.load_more }}</a>
+{% when None %}{% endmatch %}
+{% endif %}
+{% endmacro %}

@@ -1,0 +1,15 @@
+# PRIVATE reverse proxy for the dev node — your account-switcher entry point.
+#
+# This fronts ONLY `node-dev` (the one node with the dev switcher enabled). The
+# compose publishes it on 127.0.0.1:8090, so it is reachable from your machine
+# and nowhere else. The public proxy (Caddyfile) never routes here, and node-dev
+# is not on the public `edge` network at all — so the switcher cannot be reached
+# from the public :8080 site.
+#
+# Unlocking the switcher still requires the secret:
+#   http://localhost:8090/dev/unlock?key=<DEMOCRATOS_DEV_UNLOCK_SECRET>
+
+:80 {
+	encode gzip
+	reverse_proxy node-dev:3000
+}

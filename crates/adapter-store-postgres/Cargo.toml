@@ -1,0 +1,37 @@
+# A shared-database store adapter — the foundation of horizontal scale.
+#
+# Where `adapter-store-textfile` loads the whole dataset into RAM and rewrites a
+# single JSON file on every mutation (so exactly one process may own it), this
+# adapter persists to PostgreSQL: many app replicas can read and write the same
+# database concurrently, and — with the federation layer on top — each node runs
+# its *own* Postgres as the source of truth for the communities it hosts.
+#
+# IDs are minted as composite `node<<48 | sequence` values (see `domain::node`),
+# so two nodes never collide without any cross-node coordination.
+[package]
+name = "adapter-store-postgres"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+domain.workspace = true
+app.workspace = true
+async-trait.workspace = true
+serde_json.workspace = true
+# Runtime query API only (no compile-time `query!` macros), so the crate builds
+# with no live database and no `sqlx` CLI; migrations are embedded via
+# `sqlx::migrate!` and run at startup.
+sqlx = { workspace = true, features = [
+    "runtime-tokio",
+    "tls-rustls",
+    "postgres",
+    "migrate",
+    "macros",
+    "json",
+] }
+
+[dev-dependencies]
+tokio = { workspace = true }
+federation = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres"] }
