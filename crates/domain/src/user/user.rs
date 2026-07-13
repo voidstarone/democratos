@@ -53,6 +53,13 @@ pub struct User {
     /// `#[serde(default)]` keeps pre-flag datasets loadable.
     #[serde(default)]
     pub is_franchise_barred: bool,
+    /// Whether this account has opted in to reviewing platform-wide sensitive
+    /// content (and therefore to seeing flagged content, behind a click-through).
+    /// A plain platform account attribute — deliberately NOT a demos tier and not
+    /// tied to the franchise. Default false; `#[serde(default)]` keeps older
+    /// datasets loadable. See [`crate::sensitive`].
+    #[serde(default)]
+    pub is_sensitive_reviewer: bool,
 }
 
 impl User {
@@ -69,6 +76,7 @@ impl User {
             public_key: None,
             feed_paging: FeedPaging::Auto,
             is_franchise_barred: false,
+            is_sensitive_reviewer: false,
         }
     }
 
@@ -90,6 +98,7 @@ impl User {
             public_key: None,
             feed_paging: FeedPaging::Auto,
             is_franchise_barred: false,
+            is_sensitive_reviewer: false,
         }
     }
 

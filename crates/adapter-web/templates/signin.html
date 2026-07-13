@@ -6,6 +6,7 @@
 <p class="muted">{{ t.register_intro }}</p>
 <form method="post" action="/register" class="card" style="max-width:380px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  {% if !next.is_empty() %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
   <label for="handle">{{ t.handle_label }}</label>
   <input id="handle" name="handle" placeholder="{{ t.handle_placeholder }}" required autofocus
          autocomplete="username" style="display:block;width:100%;margin:.4rem 0 .9rem">
@@ -14,25 +15,26 @@
          autocomplete="email" style="display:block;width:100%;margin:.4rem 0 .9rem">
   <label for="password">{{ t.password_label }}</label>
   <input id="password" name="password" type="password" placeholder="{{ t.password_placeholder }}"
-         required minlength="8" autocomplete="new-password"
+         required minlength="16" autocomplete="new-password"
          style="display:block;width:100%;margin:.4rem 0 .9rem">
   <button type="submit">{{ t.register_submit }}</button>
 </form>
-<p class="muted" style="margin-top:.9rem"><a href="/signin">{{ t.have_account }}</a></p>
+<p class="muted" style="margin-top:.9rem"><a href="/signin{% if !next.is_empty() %}?next={{ next }}{% endif %}">{{ t.have_account }}</a></p>
 {% else %}
 <h1>{{ t.sign_in_heading }}</h1>
 <p class="muted">{{ t.sign_in_intro }}</p>
 <form method="post" action="/session" class="card" style="max-width:380px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <label for="email">{{ t.email_label }}</label>
-  <input id="email" name="email" type="email" placeholder="{{ t.email_placeholder }}" required autofocus
-         autocomplete="email" style="display:block;width:100%;margin:.4rem 0 .9rem">
+  {% if !next.is_empty() %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+  <label for="handle">{{ t.handle_label }}</label>
+  <input id="handle" name="handle" placeholder="{{ t.handle_placeholder }}" required autofocus
+         autocomplete="username" style="display:block;width:100%;margin:.4rem 0 .9rem">
   <label for="password">{{ t.password_label }}</label>
   <input id="password" name="password" type="password" placeholder="{{ t.password_placeholder }}"
          required autocomplete="current-password"
          style="display:block;width:100%;margin:.4rem 0 .9rem">
   <button type="submit">{{ t.sign_in_submit }}</button>
 </form>
-<p class="muted" style="margin-top:.9rem"><a href="/register">{{ t.need_account }}</a></p>
+<p class="muted" style="margin-top:.9rem"><a href="/register{% if !next.is_empty() %}?next={{ next }}{% endif %}">{{ t.need_account }}</a></p>
 {% endif %}
 {% endblock %}

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Invite review queue · Democratos{% endblock %}
+{% block head %}
+<style>
+  .queue-banner { border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:8px;
+                  padding:.6rem .9rem; margin:0 0 1rem; background:var(--surface); }
+  .queue-banner.bad { border-left-color:var(--bad); }
+  .toggle-card { display:flex; align-items:center; justify-content:space-between; gap:1rem;
+                 border:1px solid var(--line); border-radius:12px; padding:.9rem 1.1rem; margin:0 0 1.4rem;
+                 background:var(--surface); }
+  .toggle-state { font-weight:600; }
+  .toggle-state.on { color:var(--ok); }
+  .toggle-state.off { color:var(--muted); }
+  .queue-item { border:1px solid var(--line); border-radius:12px; padding:.9rem 1.1rem; margin:0 0 1rem;
+                background:var(--surface); }
+  .queue-email { font-weight:600; font-size:1.05rem; }
+  .queue-meta { color:var(--muted); font-size:.9rem; margin:.2rem 0 .4rem; }
+  .queue-note { margin:.3rem 0 .6rem; }
+  .queue-actions { display:flex; gap:.5rem; }
+  .queue-empty { color:var(--muted); }
+</style>
+{% endblock %}
+{% block content %}
+<h1>Invite review queue</h1>
+<p class="muted">Only reachable from your allowed subnet with the admin secret.</p>
+
+{% match self.banner() %}
+{% when Some with ((text, is_bad)) %}
+<div class="queue-banner {% if is_bad %}bad{% endif %}">{{ text }}</div>
+{% when None %}
+{% endmatch %}
+
+<div class="toggle-card">
+  <div>
+    <div>Invitation-only is
+      {% if invite_only %}<span class="toggle-state on">ON</span>{% else %}<span class="toggle-state off">OFF</span>{% endif %}
+    </div>
+    <div class="queue-meta">
+      {% if invite_only %}New sign-ups need an approved invite.{% else %}Anyone can register at /register.{% endif %}
+    </div>
+  </div>
+  <form method="post" action="/review-queue/invite-only">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="key" value="{{ key }}">
+    {% if !invite_only %}<input type="hidden" name="enabled" value="on">{% endif %}
+    <button type="submit" class="{% if invite_only %}ghost{% endif %}">
+      {% if invite_only %}Turn off{% else %}Turn on{% endif %}
+    </button>
+  </form>
+</div>
+
+<h2>Pending requests</h2>
+{% if items.is_empty() %}
+<p class="queue-empty">No requests waiting.</p>
+{% endif %}
+
+{% for it in items %}
+<div class="queue-item">
+  <div class="queue-email">{{ it.email }}</div>
+  <div class="queue-meta">
+    #{{ it.id }} ·
+    {% if it.waited_days == 0 %}today{% else %}waiting {{ it.waited_days }} day(s){% endif %}
+  </div>
+  {% if !it.note.is_empty() %}<p class="queue-note">“{{ it.note }}”</p>{% endif %}
+  <div class="queue-actions">
+    <form method="post" action="/review-queue/approve">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="key" value="{{ key }}">
+      <input type="hidden" name="id" value="{{ it.id }}">
+      <button type="submit" class="ok">Approve &amp; email invite</button>
+    </form>
+    <form method="post" action="/review-queue/reject">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="key" value="{{ key }}">
+      <input type="hidden" name="id" value="{{ it.id }}">
+      <button type="submit" class="ghost">Reject</button>
+    </form>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

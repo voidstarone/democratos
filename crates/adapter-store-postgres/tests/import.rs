@@ -26,6 +26,7 @@ fn user(id: u64, handle: &str) -> User {
         public_key: None,
         feed_paging: domain::FeedPaging::Auto,
         is_franchise_barred: false,
+        is_sensitive_reviewer: false,
     }
 }
 

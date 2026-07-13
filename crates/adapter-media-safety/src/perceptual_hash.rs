@@ -52,14 +52,19 @@ mod tests {
     }
 
     #[test]
-    fn a_gradient_differs_from_a_flat_field() {
-        let mut grad = RgbImage::new(16, 16);
-        for (x, _y, p) in grad.enumerate_pixels_mut() {
-            let v = (x * 16) as u8;
+    fn a_textured_image_differs_from_a_flat_field() {
+        // Alternating bright/dark columns produce left>right transitions (unlike a
+        // flat field or a smooth gradient, both of which dHash to all zeros).
+        let mut pattern = RgbImage::new(18, 16);
+        for (x, _y, p) in pattern.enumerate_pixels_mut() {
+            let v = if x % 2 == 0 { 240 } else { 10 };
             *p = image::Rgb([v, v, v]);
         }
-        let d = hamming_distance(dhash(&DynamicImage::ImageRgb8(grad)), dhash(&solid(16, 16, 0)));
-        assert!(d > 0, "a gradient should not match a flat field");
+        let d = hamming_distance(
+            dhash(&DynamicImage::ImageRgb8(pattern)),
+            dhash(&solid(16, 16, 0)),
+        );
+        assert!(d > 0, "a textured image should not match a flat field");
     }
 
     #[test]

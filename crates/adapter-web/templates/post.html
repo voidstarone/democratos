@@ -70,6 +70,14 @@
     <button class="ghost">{{ t.propose_removal }}</button>
   </form>
   {% endif %}
+  {% match current_user %}
+  {% when Some with (h) %}
+  <form method="post" action="/post/{{ id }}/flag" class="inline"
+        onsubmit="return confirm('{{ t.flag_sensitive }}? It will be hidden pending review.');">
+    <button class="ghost">⚑ {{ t.flag_sensitive }}</button>
+  </form>
+  {% when None %}
+  {% endmatch %}
 </div>
 
 {% if viewer_can_post && !rules.is_empty() %}

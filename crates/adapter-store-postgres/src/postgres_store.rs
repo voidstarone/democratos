@@ -7,15 +7,16 @@ use sqlx::{Executor, Postgres, Transaction};
 
 use app::{Result, StoreError};
 use app::{
-    CommentStore, CommentVoteStore, DemosStore, FoundingStore, MembershipStore, PostStore,
-    PostVoteStore, ProposalStore, ReportStore, RuleStore, TrialStore, UserStore, VoteStore,
+    CommentStore, CommentVoteStore, DemosStore, FoundingStore, InviteRequestStore, MembershipStore,
+    PostStore, PostVoteStore, ProposalStore, ReportStore, RuleStore, SensitiveCaseStore,
+    SettingsStore, TrialStore, UserStore, VoteStore,
 };
 use domain::{
     compose_id, Comment, CommentId, Demos, DemosId, FeedPaging, FoundingId, FoundingPetition,
-    FranchiseCriteria, JurySizing, Media, Membership, NodeId, Post, PostId, PostingPolicy,
-    Proposal, ProposalId, ProposalKind, Report, ReportId, ReportReason, ReportStatus, ReportTarget,
-    Rule, RuleId, Tally, Tier, Timestamp, Trial, TrialId, User, UserId, Verdict, VoteWeighting,
-    WeightingScope,
+    FranchiseCriteria, InviteId, InviteRequest, InviteStatus, JurySizing, Media, Membership, NodeId,
+    Post, PostId, PostingPolicy, Proposal, ProposalId, ProposalKind, Report, ReportId, ReportReason,
+    ReportStatus, ReportTarget, Rule, RuleId, SensitiveCase, SensitiveCaseId, SensitiveCaseStatus,
+    Tally, Tier, Timestamp, Trial, TrialId, User, UserId, Verdict, VoteWeighting, WeightingScope,
 };
 
 use crate::is_insecure_url::is_insecure_url;
@@ -273,6 +274,23 @@ impl UserStore for PostgresStore {
         Ok(())
     }
 
+    async fn set_sensitive_reviewer(&self, id: UserId, is_reviewer: bool) -> Result<()> {
+        let n = sqlx::query(
+            "UPDATE users SET data = jsonb_set(data, '{is_sensitive_reviewer}', to_jsonb($2::bool)) \
+             WHERE id = $1",
+        )
+        .bind(id.0 as i64)
+        .bind(is_reviewer)
+        .execute(&self.pool)
+        .await
+        .map_err(store_err)?
+        .rows_affected();
+        if n == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
+    }
+
     async fn set_feed_paging(&self, id: UserId, paging: FeedPaging) -> Result<()> {
         // Store the enum by its serde tag ("auto"/"pages"/"lazy") so it round-trips
         // straight back into `FeedPaging` when the document is deserialized.
@@ -293,6 +311,178 @@ impl UserStore for PostgresStore {
         if n == 0 {
             return Err(StoreError::NotFound);
         }
+        Ok(())
+    }
+}
+
+// --- invite requests (node-local waitlist) ----------------------------------
+
+/// The stable string form of an invite status, lifted into its own column so the
+/// review-queue scan (`WHERE status = 'Pending'`) needs no JSONB probe.
+pub(crate) fn invite_status_str(status: InviteStatus) -> &'static str {
+    match status {
+        InviteStatus::Pending => "Pending",
+        InviteStatus::Approved => "Approved",
+        InviteStatus::Accepted => "Accepted",
+        InviteStatus::Rejected => "Rejected",
+    }
+}
+
+#[async_trait]
+impl InviteRequestStore for PostgresStore {
+    async fn create(
+        &self,
+        email: &str,
+        note: Option<&str>,
+        requested_at: Timestamp,
+    ) -> Result<InviteRequest> {
+        let mut tx = self.pool.begin().await.map_err(store_err)?;
+        let id = self.alloc(&mut tx, "invite").await?;
+        let request = InviteRequest::new(
+            InviteId(id),
+            email,
+            note.map(str::to_string),
+            requested_at,
+        );
+        sqlx::query(
+            "INSERT INTO invite_requests (id, email, token_hash, status, requested_at, data) \
+             VALUES ($1, $2, NULL, $3, $4, $5)",
+        )
+        .bind(id as i64)
+        .bind(email)
+        .bind(invite_status_str(request.status))
+        .bind(requested_at.0)
+        .bind(Json(&request))
+        .execute(&mut *tx)
+        .await
+        .map_err(store_err)?;
+        tx.commit().await.map_err(store_err)?;
+        Ok(request)
+    }
+
+    async fn get(&self, id: InviteId) -> Result<Option<InviteRequest>> {
+        let row: Option<(Json<InviteRequest>,)> =
+            sqlx::query_as("SELECT data FROM invite_requests WHERE id = $1")
+                .bind(id.0 as i64)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(store_err)?;
+        Ok(row.map(|(j,)| j.0))
+    }
+
+    async fn by_email(&self, email: &str) -> Result<Option<InviteRequest>> {
+        let row: Option<(Json<InviteRequest>,)> =
+            sqlx::query_as("SELECT data FROM invite_requests WHERE email = $1")
+                .bind(email)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(store_err)?;
+        Ok(row.map(|(j,)| j.0))
+    }
+
+    async fn by_token_hash(&self, token_hash: &str) -> Result<Option<InviteRequest>> {
+        let row: Option<(Json<InviteRequest>,)> =
+            sqlx::query_as("SELECT data FROM invite_requests WHERE token_hash = $1")
+                .bind(token_hash)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(store_err)?;
+        Ok(row.map(|(j,)| j.0))
+    }
+
+    async fn list_pending(&self) -> Result<Vec<InviteRequest>> {
+        let rows: Vec<(Json<InviteRequest>,)> = sqlx::query_as(
+            "SELECT data FROM invite_requests WHERE status = 'Pending' \
+             ORDER BY requested_at, id LIMIT $1",
+        )
+        .bind(MAX_ROWS)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(store_err)?;
+        Ok(rows.into_iter().map(|(j,)| j.0).collect())
+    }
+
+    async fn approve(
+        &self,
+        id: InviteId,
+        token_hash: &str,
+        expires_at: Timestamp,
+        decided_at: Timestamp,
+    ) -> Result<()> {
+        let mut request = InviteRequestStore::get(self, id).await?.ok_or(StoreError::NotFound)?;
+        request.approve(token_hash, expires_at, decided_at);
+        let n = sqlx::query(
+            "UPDATE invite_requests SET token_hash = $2, status = $3, data = $4 WHERE id = $1",
+        )
+        .bind(id.0 as i64)
+        .bind(token_hash)
+        .bind(invite_status_str(request.status))
+        .bind(Json(&request))
+        .execute(&self.pool)
+        .await
+        .map_err(store_err)?
+        .rows_affected();
+        if n == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
+    }
+
+    async fn reject(&self, id: InviteId, decided_at: Timestamp) -> Result<()> {
+        let mut request = InviteRequestStore::get(self, id).await?.ok_or(StoreError::NotFound)?;
+        request.reject(decided_at);
+        let n = sqlx::query("UPDATE invite_requests SET status = $2, data = $3 WHERE id = $1")
+            .bind(id.0 as i64)
+            .bind(invite_status_str(request.status))
+            .bind(Json(&request))
+            .execute(&self.pool)
+            .await
+            .map_err(store_err)?
+            .rows_affected();
+        if n == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
+    }
+
+    async fn mark_accepted(&self, id: InviteId) -> Result<()> {
+        let mut request = InviteRequestStore::get(self, id).await?.ok_or(StoreError::NotFound)?;
+        request.mark_accepted();
+        let n = sqlx::query("UPDATE invite_requests SET status = $2, data = $3 WHERE id = $1")
+            .bind(id.0 as i64)
+            .bind(invite_status_str(request.status))
+            .bind(Json(&request))
+            .execute(&self.pool)
+            .await
+            .map_err(store_err)?
+            .rows_affected();
+        if n == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl SettingsStore for PostgresStore {
+    async fn is_invite_only(&self) -> Result<Option<bool>> {
+        let row: Option<(Json<bool>,)> =
+            sqlx::query_as("SELECT value FROM node_settings WHERE key = 'invite_only'")
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(store_err)?;
+        Ok(row.map(|(j,)| j.0))
+    }
+
+    async fn set_invite_only(&self, invite_only: bool) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO node_settings (key, value) VALUES ('invite_only', $1) \
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+        )
+        .bind(Json(invite_only))
+        .execute(&self.pool)
+        .await
+        .map_err(store_err)?;
         Ok(())
     }
 }
@@ -999,6 +1189,23 @@ impl PostStore for PostgresStore {
         Ok(())
     }
 
+    async fn set_pending_review(&self, id: PostId, pending: bool) -> Result<()> {
+        let n = sqlx::query(
+            "UPDATE posts SET data = jsonb_set(data, '{pending_review}', to_jsonb($2::bool)) \
+             WHERE id = $1",
+        )
+        .bind(id.0 as i64)
+        .bind(pending)
+        .execute(&self.pool)
+        .await
+        .map_err(store_err)?
+        .rows_affected();
+        if n == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
+    }
+
     async fn list(&self, demos: DemosId) -> Result<Vec<Post>> {
         let rows: Vec<(Json<Post>,)> =
             sqlx::query_as("SELECT data FROM posts WHERE demos_id = $1 ORDER BY id")
@@ -1089,6 +1296,23 @@ impl CommentStore for PostgresStore {
         )
         .bind(id.0 as i64)
         .bind(removed)
+        .execute(&self.pool)
+        .await
+        .map_err(store_err)?
+        .rows_affected();
+        if n == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
+    }
+
+    async fn set_pending_review(&self, id: CommentId, pending: bool) -> Result<()> {
+        let n = sqlx::query(
+            "UPDATE comments SET data = jsonb_set(data, '{pending_review}', to_jsonb($2::bool)) \
+             WHERE id = $1",
+        )
+        .bind(id.0 as i64)
+        .bind(pending)
         .execute(&self.pool)
         .await
         .map_err(store_err)?
@@ -1264,6 +1488,101 @@ impl ReportStore for PostgresStore {
                 .map_err(store_err)?;
         Ok(rows.into_iter().map(|(j,)| j.0).collect())
     }
+}
+
+// --- sensitive-content review cases -----------------------------------------
+
+#[async_trait]
+impl SensitiveCaseStore for PostgresStore {
+    async fn create(
+        &self,
+        reporter: Option<UserId>,
+        target: ReportTarget,
+        note: &str,
+        at: Timestamp,
+    ) -> Result<SensitiveCase> {
+        let mut tx = self.pool.begin().await.map_err(store_err)?;
+        let id = self.alloc(&mut tx, "sensitive_case").await?;
+        let case = SensitiveCase::new(SensitiveCaseId(id), target, reporter, note, at);
+        sqlx::query("INSERT INTO sensitive_cases (id, is_open, data) VALUES ($1, $2, $3)")
+            .bind(id as i64)
+            .bind(case_is_open(&case.status))
+            .bind(Json(&case))
+            .execute(&mut *tx)
+            .await
+            .map_err(store_err)?;
+        tx.commit().await.map_err(store_err)?;
+        Ok(case)
+    }
+
+    async fn get(&self, id: SensitiveCaseId) -> Result<Option<SensitiveCase>> {
+        let row: Option<(Json<SensitiveCase>,)> =
+            sqlx::query_as("SELECT data FROM sensitive_cases WHERE id = $1")
+                .bind(id.0 as i64)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(store_err)?;
+        Ok(row.map(|(j,)| j.0))
+    }
+
+    async fn open_for_target(&self, target: ReportTarget) -> Result<Option<SensitiveCase>> {
+        // Open cases are few; fetch them and match the target in Rust rather than
+        // reach into the JSONB with a target-shaped predicate.
+        let rows: Vec<(Json<SensitiveCase>,)> =
+            sqlx::query_as("SELECT data FROM sensitive_cases WHERE is_open ORDER BY id")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(store_err)?;
+        Ok(rows.into_iter().map(|(j,)| j.0).find(|c| c.target == target))
+    }
+
+    async fn update(&self, case: &SensitiveCase) -> Result<()> {
+        // Optimistic concurrency (see `ReportStore::update`): CAS on `rev`, bump.
+        let expected = case.rev as i64;
+        let mut next = case.clone();
+        next.rev = case.rev.saturating_add(1);
+        let n = sqlx::query(
+            "UPDATE sensitive_cases SET is_open = $2, data = $3 \
+             WHERE id = $1 AND COALESCE((data->>'rev')::bigint, 0) = $4",
+        )
+        .bind(case.id.0 as i64)
+        .bind(case_is_open(&next.status))
+        .bind(Json(&next))
+        .bind(expected)
+        .execute(&self.pool)
+        .await
+        .map_err(store_err)?
+        .rows_affected();
+        if n == 0 {
+            return Err(self
+                .conflict_or_not_found("sensitive_cases", case.id.0 as i64)
+                .await);
+        }
+        Ok(())
+    }
+
+    async fn list_open(&self) -> Result<Vec<SensitiveCase>> {
+        let rows: Vec<(Json<SensitiveCase>,)> =
+            sqlx::query_as("SELECT data FROM sensitive_cases WHERE is_open ORDER BY id")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(store_err)?;
+        Ok(rows.into_iter().map(|(j,)| j.0).collect())
+    }
+
+    async fn count_open(&self) -> Result<u64> {
+        let (n,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sensitive_cases WHERE is_open")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(store_err)?;
+        Ok(n as u64)
+    }
+}
+
+/// Whether a case is still gathering reviewer classifications (denormalized to the
+/// `is_open` column so the queue and badge-count queries stay cheap).
+pub(crate) fn case_is_open(status: &SensitiveCaseStatus) -> bool {
+    matches!(status, SensitiveCaseStatus::Open)
 }
 
 // --- trials -----------------------------------------------------------------

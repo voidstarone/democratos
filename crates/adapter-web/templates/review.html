@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Sensitive-content review · Democratos{% endblock %}
+{% block head %}
+<style>
+  .review-item { border: 1px solid var(--line); border-radius: 12px; padding: 1rem 1.1rem; margin: 0 0 1.2rem; }
+  .review-meta { color: var(--muted); font-size: .9rem; margin: 0 0 .6rem; }
+  .review-reveal { border: 1px dashed var(--line); border-radius: 10px; padding: .5rem .8rem; margin: .4rem 0 .8rem; }
+  .review-reveal > summary { cursor: pointer; font-weight: 600; color: var(--warn, #b3541e); }
+  .review-reveal img, .review-reveal video { max-width: 100%; border-radius: 8px; margin: .5rem 0; }
+  .tag-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .4rem; margin: .5rem 0; }
+  .tag-opt { display: flex; gap: .4rem; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: .4rem .6rem; }
+  .review-voted { color: var(--ok); font-weight: 600; }
+  .review-warn { color: var(--muted); font-size: .85rem; }
+</style>
+{% endblock %}
+{% block content %}
+<h1>Sensitive-content review</h1>
+<p class="muted">Content other users flagged as sensitive. Classify each item; a case
+resolves once at least its quorum of reviewers has weighed in, and the majority
+classification decides what happens to it. This queue is platform-wide and separate
+from any community.</p>
+
+{% if items.is_empty() %}
+<p class="muted">Nothing to review right now.</p>
+{% endif %}
+
+{% for it in items %}
+<div class="review-item">
+  <p class="review-meta">
+    Case #{{ it.case_id }} · {{ it.kind }} ·
+    {{ it.votes }}/{{ it.quorum }} classifications
+    {% if !it.note.is_empty() %}· note: {{ it.note }}{% endif %}
+  </p>
+
+  <details class="review-reveal">
+    <summary>Reveal for review — may be disturbing</summary>
+    {% if it.title != "" %}<h3 style="margin:.4rem 0">{{ it.title }}</h3>{% endif %}
+    {% if it.body != "" %}<p>{{ it.body }}</p>{% endif %}
+    {% for m in it.media %}
+      {% if m.is_video %}
+      <video src="{{ m.url }}" controls></video>
+      {% else %}
+      <img src="{{ m.url }}" alt="{{ m.caption }}" loading="lazy">
+      {% endif %}
+    {% endfor %}
+  </details>
+
+  {% if it.already_voted %}
+  <p class="review-voted">You have classified this. You may change your classification below.</p>
+  {% endif %}
+
+  <form method="post" action="/review/{{ it.case_id }}/classify">
+    <div class="tag-grid">
+      <label class="tag-opt"><input type="radio" name="tag" value="csam" required> CSAM (illegal)</label>
+      <label class="tag-opt"><input type="radio" name="tag" value="gore"> Death / gore</label>
+      <label class="tag-opt"><input type="radio" name="tag" value="self_harm"> Self-harm</label>
+      <label class="tag-opt"><input type="radio" name="tag" value="porn"> Regular porn</label>
+      <label class="tag-opt"><input type="radio" name="tag" value="spam"> Spam</label>
+      <label class="tag-opt"><input type="radio" name="tag" value="other"> Other (remove)</label>
+      <label class="tag-opt"><input type="radio" name="tag" value="not_sensitive"> Not sensitive</label>
+    </div>
+    <button type="submit">Submit classification</button>
+    <p class="review-warn">CSAM classifications remove the content, preserve it, and alert
+    operators to file a report. “Regular porn” keeps it up behind the NSFW age gate.
+    “Not sensitive” restores it.</p>
+  </form>
+</div>
+{% endfor %}
+{% endblock %}

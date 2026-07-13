@@ -20,11 +20,12 @@ mod tests {
 
     #[test]
     fn enforces_password_length() {
+        let one_short = "x".repeat(MIN_PASSWORD_LEN - 1);
         assert_eq!(
-            validate_password("1234567"),
+            validate_password(&one_short),
             Err(CredentialError::PasswordTooShort)
         );
-        assert_eq!(validate_password("12345678"), Ok(()));
+        assert_eq!(validate_password(&"x".repeat(MIN_PASSWORD_LEN)), Ok(()));
         let long = "x".repeat(MAX_PASSWORD_LEN + 1);
         assert_eq!(
             validate_password(&long),

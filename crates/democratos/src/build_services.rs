@@ -11,10 +11,12 @@ use adapter_recommend_memory::MemoryRecommender;
 use adapter_store_memory::MemoryStore;
 use adapter_store_postgres::{PgStoreConfig, PostgresStore};
 use adapter_store_textfile::TextFileStore;
-use app::Services;
+use app::{Notifier, Services};
 use domain::NodeId;
 
+use crate::build_media_guard::build_media_guard;
 use crate::build_media_store::build_media_store;
+use crate::media_guard_config::MediaGuardConfig;
 use crate::media_kind::MediaKind;
 use crate::store_kind::StoreKind;
 use crate::system_clock::SystemClock;
@@ -30,9 +32,13 @@ pub(crate) async fn build_services(
     media_kind: MediaKind,
     media_dir: &str,
     s3: Option<S3Config>,
+    guard: MediaGuardConfig,
     recommend_index: Option<&str>,
     requires_age_verification: bool,
     require_signatures: bool,
+    notifier: Arc<dyn Notifier>,
+    public_base_url: String,
+    invite_token_ttl_days: i64,
 ) -> Result<(Services, Option<Arc<PostgresStore>>)> {
     let clock = Arc::new(SystemClock);
     // The only AgeVerifier this build wires is the dev auto-approve stub, which
@@ -65,21 +71,36 @@ pub(crate) async fn build_services(
                 posts: store.clone(),
                 comments: store.clone(),
                 reports: store.clone(),
+                invites: store.clone(),
+                settings: store.clone(),
+                sensitive_cases: store.clone(),
                 trials: store.clone(),
                 post_votes: store.clone(),
                 comment_votes: store.clone(),
-                media: store,
+                // The in-RAM store always hosts media itself; guard it too so a
+                // dev/`--store memory` node gets the same sanitize + scan pipeline.
+                media: build_media_guard(store, &guard)?,
                 recommender: Arc::new(MemoryRecommender::default()),
                 nsfw_scanner: Arc::new(HeuristicNsfwScanner),
                 age_verifier: Arc::new(AutoApproveAgeVerifier),
                 requires_age_verification,
                 require_signatures,
+                notifier: notifier.clone(),
+                public_base_url: public_base_url.clone(),
+                invite_token_ttl_days,
                 clock,
             }
         }
         StoreKind::File => {
             let store = Arc::new(TextFileStore::open(data)?);
             let media = build_media_store(media_kind, media_dir, s3).await?;
+            // Wrap the backend in the sanitize + CSAM-scan + quarantine pipeline,
+            // unless this node hosts no media at all.
+            let media = if matches!(media_kind, MediaKind::None) {
+                media
+            } else {
+                build_media_guard(media, &guard)?
+            };
             Services {
                 users: store.clone(),
                 demoi: store.clone(),
@@ -91,6 +112,9 @@ pub(crate) async fn build_services(
                 posts: store.clone(),
                 comments: store.clone(),
                 reports: store.clone(),
+                invites: store.clone(),
+                settings: store.clone(),
+                sensitive_cases: store.clone(),
                 trials: store.clone(),
                 post_votes: store.clone(),
                 comment_votes: store.clone(),
@@ -108,6 +132,9 @@ pub(crate) async fn build_services(
                 age_verifier: Arc::new(AutoApproveAgeVerifier),
                 requires_age_verification,
                 require_signatures,
+                notifier: notifier.clone(),
+                public_base_url: public_base_url.clone(),
+                invite_token_ttl_days,
                 clock,
             }
         }
@@ -124,6 +151,13 @@ pub(crate) async fn build_services(
             let store =
                 Arc::new(PostgresStore::connect_with(url, NodeId(node_id), pg_config).await?);
             let media = build_media_store(media_kind, media_dir, s3).await?;
+            // Wrap the backend in the sanitize + CSAM-scan + quarantine pipeline,
+            // unless this node hosts no media at all.
+            let media = if matches!(media_kind, MediaKind::None) {
+                media
+            } else {
+                build_media_guard(media, &guard)?
+            };
             fed_store = Some(store.clone());
             Services {
                 users: store.clone(),
@@ -136,6 +170,9 @@ pub(crate) async fn build_services(
                 posts: store.clone(),
                 comments: store.clone(),
                 reports: store.clone(),
+                invites: store.clone(),
+                settings: store.clone(),
+                sensitive_cases: store.clone(),
                 trials: store.clone(),
                 post_votes: store.clone(),
                 comment_votes: store.clone(),
@@ -147,6 +184,9 @@ pub(crate) async fn build_services(
                 age_verifier: Arc::new(AutoApproveAgeVerifier),
                 requires_age_verification,
                 require_signatures,
+                notifier: notifier.clone(),
+                public_base_url: public_base_url.clone(),
+                invite_token_ttl_days,
                 clock,
             }
         }

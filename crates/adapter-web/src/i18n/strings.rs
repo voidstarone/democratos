@@ -1,11 +1,11 @@
 /// The message catalog. Every screen reads its labels from here.
 #[derive(Clone, Copy)]
 pub struct Strings {
-    pub brand: &'static str,
-    pub signed_in_as: &'static str,
     pub log_out: &'static str,
     pub handle_placeholder: &'static str,
     pub sign_in_register: &'static str,
+    /// Header link to the registration page (shown next to sign-in when logged out).
+    pub sign_up: &'static str,
     pub sign_in_heading: &'static str,
     pub sign_in_intro: &'static str,
     pub sign_in_submit: &'static str,
@@ -52,7 +52,7 @@ pub struct Strings {
     /// Shown to a viewer who has already signed off.
     pub founding_you_signed: &'static str,
     /// Shown to a signed-out viewer on a petition page.
-    pub founding_signin_to_sign: &'static str,
+    pub founding_signin_to_help_found: &'static str,
     /// Byline: "started by".
     pub founding_started_by: &'static str,
     // demos
@@ -179,6 +179,12 @@ pub struct Strings {
     pub next_page: &'static str,
     // preferences
     pub preferences_link: &'static str,
+    // profile page
+    pub profile_posts_tab: &'static str,
+    pub profile_comments_tab: &'static str,
+    pub profile_no_posts: &'static str,
+    pub profile_no_comments: &'static str,
+    pub profile_in_context: &'static str,
     pub preferences_heading: &'static str,
     pub pref_saved: &'static str,
     pub pref_feed_heading: &'static str,
@@ -190,6 +196,12 @@ pub struct Strings {
     pub pref_pages: &'static str,
     pub pref_pages_desc: &'static str,
     pub save_button: &'static str,
+    // sensitive-content review
+    pub pref_review_heading: &'static str,
+    pub pref_review_label: &'static str,
+    pub pref_review_desc: &'static str,
+    pub flag_sensitive: &'static str,
+    pub pending_review_notice: &'static str,
     // nsfw
     pub nsfw_label: &'static str,
     // error

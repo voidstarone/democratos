@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Finish setting up your account · Democratos{% endblock %}
+{% block head %}
+<style>
+  .invite-form { max-width: 420px; }
+  .invite-form label { display:block; font-weight:600; margin:.9rem 0 .3rem; }
+  .invite-form input { width:100%; }
+  .invite-hint { color:var(--muted); font-size:.9rem; margin:.2rem 0 0; }
+  .invite-error { color:var(--bad); font-weight:600; }
+  .invite-locked { background:var(--bg); color:var(--muted); }
+</style>
+{% endblock %}
+{% block content %}
+<h1>Finish setting up your account</h1>
+<p class="muted">You've been approved. Pick a handle and a password to finish creating your
+account for <strong>{{ email }}</strong>.</p>
+
+{% match error %}
+{% when Some with (msg) %}<p class="invite-error">{{ msg }}</p>
+{% when None %}
+{% endmatch %}
+
+<form method="post" action="/invite/accept" class="invite-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="token" value="{{ token }}">
+  <label for="email">Email</label>
+  <input id="email" type="email" class="invite-locked" value="{{ email }}" readonly>
+  <p class="invite-hint">Your invite is tied to this address.</p>
+  <label for="handle">Handle</label>
+  <input id="handle" type="text" name="handle" required autocomplete="username"
+         placeholder="pick a handle" value="{{ handle }}">
+  <label for="password">Password</label>
+  <input id="password" type="password" name="password" required minlength="16"
+         autocomplete="new-password" placeholder="choose a password">
+  <p style="margin-top:1rem"><button type="submit">Create account</button></p>
+</form>
+{% endblock %}

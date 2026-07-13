@@ -273,6 +273,37 @@ impl PostgresStore {
         Ok(inserted == 1)
     }
 
+    /// Atomically count one attempt against a fixed-window rate `bucket` and report
+    /// whether it is within `max_per_window`. The whole read-reset-increment-decide
+    /// is a single upsert, so it is correct under concurrency and shared across every
+    /// replica pointed at this database. Returns `true` to admit, `false` if over cap.
+    pub async fn admit_rate(
+        &self,
+        bucket: &str,
+        max_per_window: i32,
+        window_secs: i64,
+        now: i64,
+    ) -> Result<bool> {
+        // On conflict: reset the window (start=now, count=1) if the current one has
+        // elapsed, else increment. `rate_counters.*` reads the pre-update row.
+        let count: i32 = sqlx::query_scalar(
+            "INSERT INTO rate_counters (bucket, window_start, count) VALUES ($1, $2, 1) \
+             ON CONFLICT (bucket) DO UPDATE SET \
+                window_start = CASE WHEN $2 - rate_counters.window_start >= $3 \
+                                    THEN $2 ELSE rate_counters.window_start END, \
+                count = CASE WHEN $2 - rate_counters.window_start >= $3 \
+                             THEN 1 ELSE rate_counters.count + 1 END \
+             RETURNING count",
+        )
+        .bind(bucket)
+        .bind(now)
+        .bind(window_secs)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(store_err)?;
+        Ok(count <= max_per_window)
+    }
+
     /// This community's secret signing seed (hex), if this node holds it. Only the
     /// home node ever has it — it is never replicated.
     pub async fn community_seed(&self, demos: i64) -> Result<Option<String>> {

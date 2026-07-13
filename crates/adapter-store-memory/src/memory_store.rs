@@ -7,15 +7,16 @@ use async_trait::async_trait;
 
 use app::{MediaError, Result, StoreError};
 use app::{
-    CommentStore, CommentVoteStore, DemosStore, FoundingStore, MediaStore, MembershipStore,
-    PostStore, PostVoteStore, ProposalStore, ReportStore, RuleStore, TrialStore, UserStore,
-    VoteStore,
+    CommentStore, CommentVoteStore, DemosStore, FoundingStore, InviteRequestStore, MediaStore,
+    MembershipStore, PostStore, PostVoteStore, ProposalStore, ReportStore, RuleStore,
+    SensitiveCaseStore, SettingsStore, TrialStore, UserStore, VoteStore,
 };
 use domain::{
     Comment, CommentId, Demos, DemosId, FeedPaging, FoundingId, FoundingPetition, FranchiseCriteria,
-    JurySizing, Media, Membership, Post, PostId, PostingPolicy, Proposal, ProposalId, ProposalKind,
-    Report, ReportId, ReportReason, ReportStatus, ReportTarget, Rule, RuleId, Tally, Tier,
-    Timestamp, Trial, TrialId, User, UserId, Verdict, VoteWeighting, WeightingScope,
+    InviteId, InviteRequest, JurySizing, Media, Membership, Post, PostId, PostingPolicy, Proposal,
+    ProposalId, ProposalKind, Report, ReportId, ReportReason, ReportStatus, ReportTarget, Rule,
+    RuleId, SensitiveCase, SensitiveCaseId, SensitiveCaseStatus, Tally, Tier, Timestamp, Trial,
+    TrialId, User, UserId, Verdict, VoteWeighting, WeightingScope,
 };
 
 use crate::comment_vote_rec::CommentVoteRec;
@@ -112,6 +113,17 @@ impl UserStore for MemoryStore {
         Ok(())
     }
 
+    async fn set_sensitive_reviewer(&self, id: UserId, is_reviewer: bool) -> Result<()> {
+        let mut g = self.lock();
+        let u = g
+            .users
+            .iter_mut()
+            .find(|u| u.id == id)
+            .ok_or(StoreError::NotFound)?;
+        u.is_sensitive_reviewer = is_reviewer;
+        Ok(())
+    }
+
     async fn set_feed_paging(&self, id: UserId, paging: FeedPaging) -> Result<()> {
         let mut g = self.lock();
         let u = g
@@ -134,6 +146,112 @@ impl UserStore for MemoryStore {
 
     async fn list(&self) -> Result<Vec<User>> {
         Ok(self.lock().users.clone())
+    }
+}
+
+#[async_trait]
+impl InviteRequestStore for MemoryStore {
+    async fn create(
+        &self,
+        email: &str,
+        note: Option<&str>,
+        requested_at: Timestamp,
+    ) -> Result<InviteRequest> {
+        let mut g = self.lock();
+        g.next_invite += 1;
+        let request = InviteRequest::new(
+            InviteId(g.next_invite),
+            email,
+            note.map(str::to_string),
+            requested_at,
+        );
+        g.invites.push(request.clone());
+        Ok(request)
+    }
+
+    async fn get(&self, id: InviteId) -> Result<Option<InviteRequest>> {
+        Ok(self.lock().invites.iter().find(|r| r.id == id).cloned())
+    }
+
+    async fn by_email(&self, email: &str) -> Result<Option<InviteRequest>> {
+        Ok(self
+            .lock()
+            .invites
+            .iter()
+            .find(|r| r.email == email)
+            .cloned())
+    }
+
+    async fn by_token_hash(&self, token_hash: &str) -> Result<Option<InviteRequest>> {
+        Ok(self
+            .lock()
+            .invites
+            .iter()
+            .find(|r| r.token_hash.as_deref() == Some(token_hash))
+            .cloned())
+    }
+
+    async fn list_pending(&self) -> Result<Vec<InviteRequest>> {
+        let mut pending: Vec<InviteRequest> = self
+            .lock()
+            .invites
+            .iter()
+            .filter(|r| r.status == domain::InviteStatus::Pending)
+            .cloned()
+            .collect();
+        pending.sort_by_key(|r| r.requested_at.0);
+        Ok(pending)
+    }
+
+    async fn approve(
+        &self,
+        id: InviteId,
+        token_hash: &str,
+        expires_at: Timestamp,
+        decided_at: Timestamp,
+    ) -> Result<()> {
+        let mut g = self.lock();
+        let r = g
+            .invites
+            .iter_mut()
+            .find(|r| r.id == id)
+            .ok_or(StoreError::NotFound)?;
+        r.approve(token_hash, expires_at, decided_at);
+        Ok(())
+    }
+
+    async fn reject(&self, id: InviteId, decided_at: Timestamp) -> Result<()> {
+        let mut g = self.lock();
+        let r = g
+            .invites
+            .iter_mut()
+            .find(|r| r.id == id)
+            .ok_or(StoreError::NotFound)?;
+        r.reject(decided_at);
+        Ok(())
+    }
+
+    async fn mark_accepted(&self, id: InviteId) -> Result<()> {
+        let mut g = self.lock();
+        let r = g
+            .invites
+            .iter_mut()
+            .find(|r| r.id == id)
+            .ok_or(StoreError::NotFound)?;
+        r.mark_accepted();
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl SettingsStore for MemoryStore {
+    async fn is_invite_only(&self) -> Result<Option<bool>> {
+        Ok(self.lock().invite_only)
+    }
+
+    async fn set_invite_only(&self, invite_only: bool) -> Result<()> {
+        self.lock().invite_only = Some(invite_only);
+        Ok(())
     }
 }
 
@@ -606,6 +724,17 @@ impl PostStore for MemoryStore {
         Ok(())
     }
 
+    async fn set_pending_review(&self, id: PostId, pending: bool) -> Result<()> {
+        let mut g = self.lock();
+        let p = g
+            .posts
+            .iter_mut()
+            .find(|p| p.id == id)
+            .ok_or(StoreError::NotFound)?;
+        p.pending_review = pending;
+        Ok(())
+    }
+
     async fn list(&self, demos: DemosId) -> Result<Vec<Post>> {
         Ok(self
             .lock()
@@ -687,6 +816,17 @@ impl CommentStore for MemoryStore {
             .find(|c| c.id == id)
             .ok_or(StoreError::NotFound)?;
         c.removed = removed;
+        Ok(())
+    }
+
+    async fn set_pending_review(&self, id: CommentId, pending: bool) -> Result<()> {
+        let mut g = self.lock();
+        let c = g
+            .comments
+            .iter_mut()
+            .find(|c| c.id == id)
+            .ok_or(StoreError::NotFound)?;
+        c.pending_review = pending;
         Ok(())
     }
 
@@ -801,6 +941,77 @@ impl ReportStore for MemoryStore {
             .filter(|r| r.demos_id == demos && r.status == ReportStatus::Open)
             .cloned()
             .collect())
+    }
+}
+
+#[async_trait]
+impl SensitiveCaseStore for MemoryStore {
+    async fn create(
+        &self,
+        reporter: Option<UserId>,
+        target: ReportTarget,
+        note: &str,
+        at: Timestamp,
+    ) -> Result<SensitiveCase> {
+        let mut g = self.lock();
+        g.next_sensitive_case += 1;
+        let case = SensitiveCase::new(
+            SensitiveCaseId(g.next_sensitive_case),
+            target,
+            reporter,
+            note,
+            at,
+        );
+        g.sensitive_cases.push(case.clone());
+        Ok(case)
+    }
+
+    async fn get(&self, id: SensitiveCaseId) -> Result<Option<SensitiveCase>> {
+        Ok(self
+            .lock()
+            .sensitive_cases
+            .iter()
+            .find(|c| c.id == id)
+            .cloned())
+    }
+
+    async fn open_for_target(&self, target: ReportTarget) -> Result<Option<SensitiveCase>> {
+        Ok(self
+            .lock()
+            .sensitive_cases
+            .iter()
+            .find(|c| c.target == target && c.status == SensitiveCaseStatus::Open)
+            .cloned())
+    }
+
+    async fn update(&self, case: &SensitiveCase) -> Result<()> {
+        let mut g = self.lock();
+        let slot = g
+            .sensitive_cases
+            .iter_mut()
+            .find(|c| c.id == case.id)
+            .ok_or(StoreError::NotFound)?;
+        *slot = case.clone();
+        Ok(())
+    }
+
+    async fn list_open(&self) -> Result<Vec<SensitiveCase>> {
+        Ok(self
+            .lock()
+            .sensitive_cases
+            .iter()
+            .filter(|c| c.status == SensitiveCaseStatus::Open)
+            .cloned()
+            .collect())
+    }
+
+    async fn count_open(&self) -> Result<u64> {
+        Ok(self
+            .lock()
+            .sensitive_cases
+            .iter()
+            .filter(|c| c.status == SensitiveCaseStatus::Open)
+            .count() as u64)
     }
 }
 

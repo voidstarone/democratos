@@ -2,7 +2,7 @@
 
 use axum::{
     extract::{Path, State},
-    http::{header, HeaderValue, StatusCode},
+    http::{header, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
 
@@ -24,6 +24,31 @@ pub async fn serve_media(State(state): State<AppState>, Path(key): Path<String>)
                 (
                     header::X_CONTENT_TYPE_OPTIONS,
                     HeaderValue::from_static("nosniff"),
+                ),
+                // Serve as a displayed resource, never a top-level document, and —
+                // belt-and-braces on top of the sanitizer and `nosniff` — forbid any
+                // script/plugin execution should a byte sequence ever be coaxed into
+                // being treated as active content.
+                (
+                    header::CONTENT_DISPOSITION,
+                    HeaderValue::from_static("inline"),
+                ),
+                (
+                    header::CONTENT_SECURITY_POLICY,
+                    HeaderValue::from_static("default-src 'none'; sandbox; frame-ancestors 'none'"),
+                ),
+                // Media keys are content-addressed (a SHA-256 of the bytes), so a
+                // key's content never changes — cache it hard. This is also what a
+                // CDN in front of this route keys on.
+                (
+                    header::CACHE_CONTROL,
+                    HeaderValue::from_static("public, max-age=31536000, immutable"),
+                ),
+                // Let a separate CDN service on another origin read the bytes, but
+                // no arbitrary cross-site embedder beyond that.
+                (
+                    HeaderName::from_static("cross-origin-resource-policy"),
+                    HeaderValue::from_static("same-site"),
                 ),
             ],
             bytes,

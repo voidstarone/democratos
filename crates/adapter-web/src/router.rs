@@ -1,14 +1,16 @@
 //! Build the HTTP router for the application services and write gateway.
 
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use app::{GovernanceWrites, Services, SessionSigner};
+use app::{AccountAuthenticator, AccountMinter, GovernanceWrites, Services, SessionSigner};
 use axum::{
     extract::DefaultBodyLimit,
     middleware::{from_fn, from_fn_with_state},
     routing::{get, post},
     Router,
 };
+use ipnet::IpNet;
 
 use crate::app_state::AppState;
 use crate::security_headers::security_headers;
@@ -19,10 +21,15 @@ use crate::{dev, handlers, rate_limit};
 pub fn router(
     services: Services,
     writes: Arc<dyn GovernanceWrites>,
+    minter: Arc<dyn AccountMinter>,
+    authenticator: Arc<dyn AccountAuthenticator>,
     session: SessionSigner,
     dev_mode: bool,
     secure_cookies: bool,
     dev_unlock_secret: Option<Arc<str>>,
+    invite_only: Arc<AtomicBool>,
+    admin_subnets: Arc<[IpNet]>,
+    admin_secret: Option<Arc<str>>,
 ) -> Router {
     // One process-wide limiter, shared by the middleware across all connections.
     let limiter = Arc::new(rate_limit::rate_limiter::RateLimiter::new());
@@ -37,6 +44,28 @@ pub fn router(
                 .post(handlers::create_account::create_account),
         )
         .route("/logout", post(handlers::logout::logout))
+        // Invitation-only access: the public waitlist, the one-time accept link,
+        // and the operator's subnet+secret-gated review queue.
+        .route(
+            "/request-invite",
+            get(handlers::request_invite_page::request_invite_page)
+                .post(handlers::request_invite::request_invite),
+        )
+        .route(
+            "/invite/accept",
+            get(handlers::accept_invite_page::accept_invite_page)
+                .post(handlers::accept_invite::accept_invite),
+        )
+        .route("/review-queue", get(handlers::review_queue_page::review_queue_page))
+        .route(
+            "/review-queue/approve",
+            post(handlers::approve_invite::approve_invite),
+        )
+        .route("/review-queue/reject", post(handlers::reject_invite::reject_invite))
+        .route(
+            "/review-queue/invite-only",
+            post(handlers::toggle_invite_only::toggle_invite_only),
+        )
         .route("/lang", post(handlers::set_lang::set_lang))
         .route(
             "/preferences",
@@ -87,6 +116,7 @@ pub fn router(
         .route("/d/:slug/reports", get(handlers::reports_page::reports_page))
         .route("/search", get(handlers::search_page::search_page))
         .route("/media/:key", get(handlers::serve_media::serve_media))
+        .route("/u/:handle", get(handlers::profile_page::profile_page))
         .route("/post/:id", get(handlers::post_page::post_page))
         .route("/post/:id/vote", post(handlers::post_vote::post_vote))
         .route("/post/:id/comments", post(handlers::add_comment::add_comment))
@@ -110,14 +140,24 @@ pub fn router(
         // that touch every route) so a throttled request is rejected cheaply,
         // before any Argon2 work. It reads `ConnectInfo`, so it keys on the real
         // connection peer, never a spoofable header.
+        // Sensitive-content flagging + the platform-wide review console.
+        .route("/post/:id/flag", post(handlers::flag_post::flag_post))
+        .route("/review", get(handlers::review_page::review_page))
+        .route("/review/summary", get(handlers::review_summary::review_summary))
+        .route("/review/:id/classify", post(handlers::cast_review::cast_review))
         .layer(from_fn_with_state(limiter, rate_limit::rate_limit::rate_limit))
         .layer(from_fn(security_headers))
         .with_state(AppState {
             services,
             writes,
+            minter,
+            authenticator,
             session,
             dev_mode,
             secure_cookies,
             dev_unlock_secret,
+            invite_only,
+            admin_subnets,
+            admin_secret,
         })
 }

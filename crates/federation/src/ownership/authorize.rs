@@ -45,9 +45,21 @@ pub async fn authorize(
     // The authoritative community comes from the payload, not `part.demos`.
     let community = match event_scope(&part) {
         EventScope::Global { home } => {
-            // A user account is authored only by its home (minting) node.
+            // A user account is authored only by its home (minting) node…
             if home != NodeId(part.node) {
                 return Err(AuthError::WrongHome);
+            }
+            // …and that home must be a federation-trusted account issuer. Accounts
+            // are global (no per-community owner), so without this any keyed node
+            // could mint accounts that replicate fleet-wide; the trust root confines
+            // account creation to certified servers. A registry with no root
+            // configured trusts every node (unchanged legacy behaviour).
+            if !registry
+                .is_trusted_issuer(home)
+                .await
+                .map_err(|e| AuthError::Registry(e.0))?
+            {
+                return Err(AuthError::UntrustedIssuer);
             }
             return Ok(part);
         }
@@ -390,6 +402,86 @@ mod tests {
             .unwrap();
         let victims_account = compose_id(NodeId(1), 5); // minted by node 1
         let ev = ChangeEvent::sign(&attacker, user_part(victims_account));
+        assert_eq!(
+            authorize(&reg, &ev, &NoParents).await,
+            Err(AuthError::WrongHome)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_trusted_issuers_account_is_authorized_under_a_trust_root() {
+        // With a federation trust root configured, an account minted by a node the
+        // root has certified is accepted fleet-wide.
+        let root = crate::IssuerRootKeypair::generate();
+        let reg = InMemoryRegistry::with_trust_root(root.public());
+        let issuer = NodeKeypair::generate(NodeId(1));
+        reg.publish_key(issuer.node(), &issuer.public().to_hex())
+            .await
+            .unwrap();
+        reg.set_issuer_cert(&root.certify(1, 1)).await.unwrap();
+
+        let home_minted = compose_id(NodeId(1), 5);
+        let ev = ChangeEvent::sign(&issuer, user_part(home_minted));
+        assert!(authorize(&reg, &ev, &NoParents).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn an_untrusted_node_cannot_mint_a_fleet_wide_account() {
+        // THE requirement: cross-community accounts only from trusted servers. Node 9
+        // is a valid, keyed federation member and correctly mints an account in its
+        // OWN id namespace (so it clears WrongHome) — but the root never certified
+        // it, so its account is refused everywhere.
+        let root = crate::IssuerRootKeypair::generate();
+        let reg = InMemoryRegistry::with_trust_root(root.public());
+        let rogue = NodeKeypair::generate(NodeId(9));
+        reg.publish_key(rogue.node(), &rogue.public().to_hex())
+            .await
+            .unwrap();
+
+        let own_account = compose_id(NodeId(9), 1); // minted by node 9 itself
+        let ev = ChangeEvent::sign(&rogue, user_part(own_account));
+        assert_eq!(
+            authorize(&reg, &ev, &NoParents).await,
+            Err(AuthError::UntrustedIssuer)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_forged_issuer_cert_does_not_confer_trust() {
+        // A rogue node forges its own "cert" with a key that is not the federation
+        // root. set_issuer_cert refuses it, so the node stays untrusted.
+        let root = crate::IssuerRootKeypair::generate();
+        let impostor_root = crate::IssuerRootKeypair::generate();
+        let reg = InMemoryRegistry::with_trust_root(root.public());
+        let rogue = NodeKeypair::generate(NodeId(9));
+        reg.publish_key(rogue.node(), &rogue.public().to_hex())
+            .await
+            .unwrap();
+        // A cert signed by the wrong root is rejected at write time.
+        assert!(reg.set_issuer_cert(&impostor_root.certify(9, 1)).await.is_err());
+
+        let own_account = compose_id(NodeId(9), 1);
+        let ev = ChangeEvent::sign(&rogue, user_part(own_account));
+        assert_eq!(
+            authorize(&reg, &ev, &NoParents).await,
+            Err(AuthError::UntrustedIssuer)
+        );
+    }
+
+    #[tokio::test]
+    async fn wrong_home_is_checked_before_issuer_trust() {
+        // Even a trusted issuer cannot author an account minted by a DIFFERENT node —
+        // the anti-takeover WrongHome check still fires first.
+        let root = crate::IssuerRootKeypair::generate();
+        let reg = InMemoryRegistry::with_trust_root(root.public());
+        let issuer = NodeKeypair::generate(NodeId(1));
+        reg.publish_key(issuer.node(), &issuer.public().to_hex())
+            .await
+            .unwrap();
+        reg.set_issuer_cert(&root.certify(1, 1)).await.unwrap();
+
+        let someone_elses = compose_id(NodeId(2), 5); // minted by node 2
+        let ev = ChangeEvent::sign(&issuer, user_part(someone_elses));
         assert_eq!(
             authorize(&reg, &ev, &NoParents).await,
             Err(AuthError::WrongHome)

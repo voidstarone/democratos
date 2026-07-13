@@ -2,6 +2,7 @@
 //! templates contain no business logic, only presentation. Every view carries a
 //! translated [`Strings`] catalog (`t`) and the active language code (`lang`).
 
+pub mod accept_invite_view;
 pub mod auth_mode;
 pub mod comment_row;
 pub mod community_option;
@@ -14,6 +15,7 @@ pub mod found_view;
 pub mod founding_list_item;
 pub mod founding_view;
 pub mod index_view;
+pub mod invite_queue_item;
 pub mod media_item;
 pub mod pager;
 pub mod post_row;
@@ -22,9 +24,16 @@ pub mod preferences_view;
 pub mod proposal_view;
 pub mod proposals_view;
 pub mod report_row;
+pub mod request_invite_view;
+pub mod review_item;
+pub mod review_queue_view;
+pub mod review_view;
 pub mod reports_view;
 pub mod rule_view;
 pub mod search_fragment_view;
+pub mod profile_comment_item;
+pub mod profile_post_item;
+pub mod profile_view;
 pub mod search_view;
 pub mod sign_in_view;
 pub mod standing_view;

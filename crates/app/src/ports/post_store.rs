@@ -23,6 +23,8 @@ pub trait PostStore: Send + Sync {
     async fn set_removed(&self, id: PostId, removed: bool) -> Result<()>;
     /// Flag (or unflag) a post as NSFW.
     async fn set_is_nsfw(&self, id: PostId, is_nsfw: bool) -> Result<()>;
+    /// Hide (or un-hide) a post pending sensitive-content review.
+    async fn set_pending_review(&self, id: PostId, pending: bool) -> Result<()>;
     async fn list(&self, demos: DemosId) -> Result<Vec<Post>>;
     async fn list_by_author(&self, demos: DemosId, author: UserId) -> Result<Vec<Post>>;
     /// Every post across all communities. Backs site-wide search.

@@ -29,4 +29,22 @@ pub enum Command {
         guilty: bool,
         sig: Option<String>,
     },
+    /// Ask a **trusted issuer** to mint a new account on the requesting node's
+    /// behalf. A node that is not itself a trusted issuer cannot create an account
+    /// that replicates fleet-wide, so it forwards the sign-up here; the issuer runs
+    /// its normal registration (validating the credential policy and hashing the
+    /// password itself) and mints the account in its own id namespace. The raw
+    /// password travels only over the authenticated, TLS-protected node link and is
+    /// never persisted by the forwarder.
+    MintAccount {
+        handle: String,
+        email: String,
+        password: String,
+    },
+    /// Ask an account's **home** trusted issuer to verify a login on the requesting
+    /// node's behalf. Credentials (email + hash) never replicate, so a community node
+    /// can't verify a federated account's password itself; it forwards the handle +
+    /// password to the issuer that homes the account, which verifies and returns the
+    /// account id. Login is by handle because handles replicate (emails do not).
+    Authenticate { handle: String, password: String },
 }

@@ -45,11 +45,10 @@ impl Lang {
 }
 
 const EN: Strings = Strings {
-    brand: "⚖ Democratos",
-    signed_in_as: "signed in as",
     log_out: "log out",
     handle_placeholder: "pick a handle",
     sign_in_register: "sign in",
+    sign_up: "sign up",
     sign_in_heading: "Sign in",
     sign_in_intro: "Enter your email and password to sign in.",
     sign_in_submit: "Sign in",
@@ -83,7 +82,7 @@ const EN: Strings = Strings {
     sign_off_button: "Sign off on this founding",
     founding_share_hint: "Share this link so nine others can sign off:",
     founding_you_signed: "You've signed off on this founding.",
-    founding_signin_to_sign: "Sign in to sign off.",
+    founding_signin_to_help_found: "Sign in to back this founding.",
     founding_started_by: "started by",
     back_all: "← all communities",
     criteria_heading: "Franchise criteria",
@@ -196,6 +195,11 @@ const EN: Strings = Strings {
     prev_page: "Previous",
     next_page: "Next",
     preferences_link: "Preferences",
+    profile_posts_tab: "Posts",
+    profile_comments_tab: "Comments",
+    profile_no_posts: "No posts yet.",
+    profile_no_comments: "No comments yet.",
+    profile_in_context: "View in context",
     preferences_heading: "Preferences",
     pref_saved: "Preferences saved.",
     pref_feed_heading: "Feed loading",
@@ -206,6 +210,13 @@ const EN: Strings = Strings {
     pref_lazy_desc: "Always load more posts automatically as you scroll (when JavaScript is available).",
     pref_pages: "Paged",
     pref_pages_desc: "Never load automatically — always show a link to the next page.",
+    pref_review_heading: "Sensitive-content review",
+    pref_review_label: "Review sensitive content",
+    pref_review_desc: "Opt in to reviewing content other users have flagged as sensitive. \
+        You will see flagged material, which may be disturbing; confirmed illegal content is \
+        escalated to operators. Platform-wide, not tied to any community. Off by default.",
+    flag_sensitive: "Flag as sensitive",
+    pending_review_notice: "This content was flagged as sensitive and is hidden pending review.",
     save_button: "Save",
     nsfw_label: "NSFW",
     error_heading: "Something went wrong",
@@ -213,11 +224,10 @@ const EN: Strings = Strings {
 };
 
 const ES: Strings = Strings {
-    brand: "⚖ Democratos",
-    signed_in_as: "sesión iniciada como",
     log_out: "cerrar sesión",
     handle_placeholder: "elige un usuario",
     sign_in_register: "entrar",
+    sign_up: "registrarse",
     sign_in_heading: "Entrar",
     sign_in_intro: "Escribe tu correo y contraseña para entrar.",
     sign_in_submit: "Entrar",
@@ -251,7 +261,7 @@ const ES: Strings = Strings {
     sign_off_button: "Dar el visto bueno",
     founding_share_hint: "Comparte este enlace para que nueve personas más firmen:",
     founding_you_signed: "Ya diste tu visto bueno a esta fundación.",
-    founding_signin_to_sign: "Inicia sesión para firmar.",
+    founding_signin_to_help_found: "Inicia sesión para apoyar esta fundación.",
     founding_started_by: "iniciada por",
     back_all: "← todas las comunidades",
     criteria_heading: "Criterios de sufragio",
@@ -364,6 +374,11 @@ const ES: Strings = Strings {
     prev_page: "Anterior",
     next_page: "Siguiente",
     preferences_link: "Preferencias",
+    profile_posts_tab: "Publicaciones",
+    profile_comments_tab: "Comentarios",
+    profile_no_posts: "Aún no hay publicaciones.",
+    profile_no_comments: "Aún no hay comentarios.",
+    profile_in_context: "Ver en contexto",
     preferences_heading: "Preferencias",
     pref_saved: "Preferencias guardadas.",
     pref_feed_heading: "Carga del feed",
@@ -374,6 +389,14 @@ const ES: Strings = Strings {
     pref_lazy_desc: "Carga siempre más publicaciones automáticamente al desplazarte (cuando JavaScript está disponible).",
     pref_pages: "Paginado",
     pref_pages_desc: "Nunca cargar automáticamente: mostrar siempre un enlace a la página siguiente.",
+    pref_review_heading: "Revisión de contenido sensible",
+    pref_review_label: "Revisar contenido sensible",
+    pref_review_desc: "Participa en la revisión del contenido que otras personas han marcado como \
+        sensible. Verás material marcado, que puede ser perturbador; el contenido ilegal confirmado \
+        se escala a los operadores. A nivel de plataforma, no vinculado a ninguna comunidad. \
+        Desactivado por defecto.",
+    flag_sensitive: "Marcar como sensible",
+    pending_review_notice: "Este contenido fue marcado como sensible y está oculto pendiente de revisión.",
     save_button: "Guardar",
     nsfw_label: "NSFW",
     error_heading: "Algo salió mal",

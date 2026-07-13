@@ -34,6 +34,7 @@ pub mod change_event;
 pub mod change_op;
 pub mod fed_error;
 mod from_hex;
+pub mod issuer;
 pub mod node_keypair;
 pub mod node_public_key;
 pub mod ownership;
@@ -54,6 +55,13 @@ pub use binding::community_key_publish_challenge::community_key_publish_challeng
 pub use binding::community_keypair::CommunityKeypair;
 pub use binding::community_public_key::CommunityPublicKey;
 pub use binding::home_binding::HomeBinding;
+
+pub use issuer::choose_issuer::choose_issuer;
+pub use issuer::issuer_cert::IssuerCert;
+pub use issuer::issuer_endpoint::IssuerEndpoint;
+pub use issuer::issuer_root_keypair::IssuerRootKeypair;
+pub use issuer::issuer_root_public_key::IssuerRootPublicKey;
+pub use issuer::node_addr_challenge::node_addr_challenge;
 
 pub use ownership::auth_error::AuthError;
 pub use ownership::authorize::authorize;

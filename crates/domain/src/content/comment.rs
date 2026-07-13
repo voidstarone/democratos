@@ -15,6 +15,11 @@ pub struct Comment {
     pub body: String,
     pub created_at: Timestamp,
     pub removed: bool,
+    /// Flagged sensitive by a user and hidden while a platform-wide review case
+    /// gathers classifications ([`crate::sensitive`]). Distinct from
+    /// [`removed`](Self::removed). `#[serde(default)]` keeps older datasets loadable.
+    #[serde(default)]
+    pub pending_review: bool,
 }
 
 impl Comment {
@@ -34,6 +39,7 @@ impl Comment {
             body: body.into(),
             created_at,
             removed: false,
+            pending_review: false,
         }
     }
 }

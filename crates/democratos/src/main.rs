@@ -6,15 +6,23 @@
 //! surface area of "swappability". Everything else is wired through ports.
 
 mod backfill;
+mod build_media_guard;
 mod build_media_store;
+mod build_notifier;
 mod build_services;
 mod cli;
 mod fed;
+mod issuer_command;
+mod media_guard_config;
 mod media_kind;
+mod notifier_kind;
+mod parse_admin_subnets;
 mod report_storage;
+mod run_issuer;
 mod s3_config_from;
+mod sanitizer_kind;
+mod scan_policy;
 mod seed;
-mod seed_reddit;
 mod spawn_recommendation_refresher;
 mod store_kind;
 mod system_clock;
@@ -26,10 +34,17 @@ use anyhow::Result;
 use clap::Parser;
 
 use adapter_store_postgres::PgStoreConfig;
-use app::{GovernanceWrites, LocalWrites};
+use app::{
+    AccountAuthenticator, AccountMinter, GovernanceWrites, LocalAuthenticator, LocalMinter,
+    LocalWrites,
+};
 
+use crate::build_notifier::build_notifier;
 use crate::build_services::build_services;
 use crate::cli::Cli;
+use crate::notifier_kind::NotifierKind;
+use crate::parse_admin_subnets::parse_admin_subnets;
+use crate::media_guard_config::MediaGuardConfig;
 use crate::report_storage::report_storage;
 use crate::s3_config_from::s3_config_from;
 use crate::spawn_recommendation_refresher::spawn_recommendation_refresher;
@@ -38,6 +53,21 @@ use crate::top::Top;
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // Trusted-issuer key management is offline (root keygen / certify) or touches
+    // only the control plane (publish) — none of it needs a services stack, so
+    // handle it before building one. Detect by reference so the other commands can
+    // still borrow `cli` for `build_services`.
+    if matches!(cli.command, Top::Issuer(_)) {
+        let node_id = cli.node_id;
+        let Top::Issuer(command) = cli.command else { unreachable!() };
+        return run_issuer::run_issuer(command, node_id).await;
+    }
+
+    // The invite-approval notifier (log or SMTP). Built here so a misconfigured
+    // SMTP setup fails the boot before any services are wired.
+    let notifier = build_notifier(&cli)?;
+
     let (services, fed_store) = build_services(
         cli.store,
         &cli.data,
@@ -50,9 +80,19 @@ async fn main() -> Result<()> {
         cli.media,
         &cli.media_dir,
         s3_config_from(&cli),
+        MediaGuardConfig {
+            sanitizer: cli.media_sanitizer,
+            csam_scan: cli.csam_scan,
+            hash_file: cli.csam_hash_file.clone(),
+            policy: cli.media_scan_policy.to_app(),
+            quarantine_dir: cli.quarantine_dir.clone(),
+        },
         cli.recommend_index.as_deref(),
         cli.age_verification,
         cli.require_signatures,
+        notifier,
+        cli.public_base_url.clone(),
+        cli.invite_token_ttl_days,
     )
     .await?;
     report_storage(cli.store, &cli.data, &cli.media_dir, &services).await;
@@ -65,6 +105,7 @@ async fn main() -> Result<()> {
             secure_cookies,
             session_secret,
             federation_addr,
+            advertise_url,
             etcd_endpoints,
             cluster_token,
             peers,
@@ -78,6 +119,23 @@ async fn main() -> Result<()> {
                 || addr.starts_with("localhost")
                 || addr.starts_with("[::1]")
                 || addr.starts_with("::1");
+
+            // A shared session secret makes cookies valid fleet-wide — convenient,
+            // but it means ANY node holding it can forge a session for any account
+            // WITHOUT the password, which would bypass delegated login entirely. Warn
+            // when a federated node uses one, so it is only ever shared across nodes
+            // inside the same trust boundary — never handed to an untrusted community
+            // node (give those their own secret, so their cookies are local to them).
+            let has_shared_session_secret =
+                session_secret.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
+            if federation_addr.is_some() && has_shared_session_secret {
+                eprintln!(
+                    "⚠  federation + a shared DEMOCRATOS_SESSION_SECRET: any node holding this \
+                     secret can forge a session for any account without its password. Share it \
+                     ONLY across nodes in the same trust boundary; give untrusted community nodes \
+                     their own secret so their sessions can't be forged fleet-wide."
+                );
+            }
 
             // Session-cookie signer: a configured secret makes sessions durable
             // and cluster-wide; its absence falls back to a secure per-process
@@ -143,34 +201,44 @@ async fn main() -> Result<()> {
             // plane) when configured. It needs the concrete Postgres store and
             // returns the write gateway that routes votes to their owner node.
             // Without federation, votes run locally against `services`.
-            let writes: Arc<dyn GovernanceWrites> = if let Some(federation_addr) = federation_addr {
-                // Signature enforcement is already forced on above for any federated
-                // node, so a forwarded write with no valid per-user signature is
-                // rejected by `verify_user_action` on the authoritative owner.
-                let store = fed_store
-                    .clone()
-                    .ok_or_else(|| anyhow::anyhow!("federation requires --store postgres"))?;
-                let peers = peers
-                    .iter()
-                    .map(|p| fed::parse_peer::parse_peer(p))
-                    .collect::<Result<Vec<_>>>()?;
-                fed::start::start(
-                    store,
-                    services.clone(),
-                    fed::federation_args::FederationArgs {
-                        node_id: cli.node_id,
-                        federation_addr,
-                        etcd_endpoints: fed::parse_endpoints::parse_endpoints(&etcd_endpoints),
-                        cluster_token,
-                        peers,
-                        lease_ttl_secs: 15,
-                        poll_interval_secs: 5,
-                    },
-                )
-                .await?
-            } else {
-                Arc::new(LocalWrites::new(services.clone()))
-            };
+            let (writes, minter, authenticator): (
+                Arc<dyn GovernanceWrites>,
+                Arc<dyn AccountMinter>,
+                Arc<dyn AccountAuthenticator>,
+            ) = if let Some(federation_addr) = federation_addr {
+                    // Signature enforcement is already forced on above for any federated
+                    // node, so a forwarded write with no valid per-user signature is
+                    // rejected by `verify_user_action` on the authoritative owner.
+                    let store = fed_store
+                        .clone()
+                        .ok_or_else(|| anyhow::anyhow!("federation requires --store postgres"))?;
+                    let peers = peers
+                        .iter()
+                        .map(|p| fed::parse_peer::parse_peer(p))
+                        .collect::<Result<Vec<_>>>()?;
+                    fed::start::start(
+                        store,
+                        services.clone(),
+                        fed::federation_args::FederationArgs {
+                            node_id: cli.node_id,
+                            federation_addr,
+                            advertise_url,
+                            etcd_endpoints: fed::parse_endpoints::parse_endpoints(&etcd_endpoints),
+                            cluster_token,
+                            peers,
+                            lease_ttl_secs: 15,
+                            poll_interval_secs: 5,
+                        },
+                    )
+                    .await?
+                } else {
+                    // Single-box: this node owns everything and is its own issuer.
+                    (
+                        Arc::new(LocalWrites::new(services.clone())),
+                        Arc::new(LocalMinter::new(services.clone())),
+                        Arc::new(LocalAuthenticator::new(services.clone())),
+                    )
+                };
 
             // Warn loudly if a non-loopback bind (i.e. a real deployment) is
             // serving the session cookie without the `Secure` flag: over plain
@@ -218,15 +286,67 @@ async fn main() -> Result<()> {
                 eprintln!("⚠  --dev-unlock-secret is set but --dev is off; the switcher stays disabled.");
             }
 
+            // Invitation-only access + the admin invite review queue.
+            //
+            // Seed the live toggle from the persisted setting, falling back to the
+            // `--invite-only` boot flag the first time it has never been set. The
+            // flag only ever seeds; a later console toggle persists and then wins.
+            let invite_only_initial = services
+                .is_invite_only(cli.invite_only)
+                .await
+                .unwrap_or(cli.invite_only);
+            let invite_only = Arc::new(std::sync::atomic::AtomicBool::new(invite_only_initial));
+
+            let admin_subnets = parse_admin_subnets(cli.admin_subnet.as_deref())?;
+            let admin_secret: Option<Arc<str>> = cli
+                .admin_secret
+                .clone()
+                .filter(|s| !s.is_empty())
+                .map(|s| s.into());
+
+            // Fail-closed / loud-warning checks for the review queue and delivery.
+            if admin_secret.is_none() {
+                if cli.admin_subnet.is_some() {
+                    eprintln!(
+                        "⚠  --admin-subnet is set but no --admin-secret \
+                         (DEMOCRATOS_ADMIN_SECRET): the invite review queue stays DISABLED — a \
+                         secret is required to open it."
+                    );
+                } else {
+                    eprintln!(
+                        "ℹ  invite review queue is disabled; set --admin-secret and \
+                         --admin-subnet to enable it."
+                    );
+                }
+            } else if admin_subnets.is_empty() && !loopback {
+                eprintln!(
+                    "⚠  --admin-secret is set with no --admin-subnet on a non-loopback bind \
+                     ({addr}): the review queue is reachable only from loopback (e.g. via an SSH \
+                     tunnel). Add --admin-subnet to reach it from your LAN/VPN."
+                );
+            }
+            if invite_only_initial && matches!(cli.notifier, NotifierKind::Log) {
+                eprintln!(
+                    "⚠  invitation-only is ON but --notifier is 'log': approvals will only PRINT \
+                     the invite link to this log, not email it. Use --notifier smtp to send real \
+                     email."
+                );
+            }
+
             // Choosing the web adapter — equally, this could be any driving adapter.
             adapter_web::serve(
                 services,
                 writes,
+                minter,
+                authenticator,
                 session,
                 &addr,
                 dev,
                 secure_cookies,
                 dev_unlock_secret,
+                invite_only,
+                admin_subnets,
+                admin_secret,
             )
             .await?;
         }
@@ -236,11 +356,10 @@ async fn main() -> Result<()> {
             let writes = LocalWrites::new(services.clone());
             adapter_cli::dispatch(&services, &writes, command).await?;
         }
+        // Handled before `build_services` above — it needs no services stack.
+        Top::Issuer(_) => unreachable!("issuer commands are dispatched before build_services"),
         Top::Seed => {
             seed::run::run(&services).await?;
-        }
-        Top::SeedReddit => {
-            seed_reddit::run::run(&services).await?;
         }
         Top::Import { from } => {
             let store = fed_store.ok_or_else(|| {

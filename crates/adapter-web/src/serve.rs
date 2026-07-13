@@ -1,9 +1,11 @@
 //! Bind an address and serve the application over HTTP.
 
 use std::net::SocketAddr;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use app::{GovernanceWrites, Services, SessionSigner};
+use app::{AccountAuthenticator, AccountMinter, GovernanceWrites, Services, SessionSigner};
+use ipnet::IpNet;
 
 use crate::router::router;
 
@@ -14,11 +16,16 @@ use crate::router::router;
 pub async fn serve(
     services: Services,
     writes: Arc<dyn GovernanceWrites>,
+    minter: Arc<dyn AccountMinter>,
+    authenticator: Arc<dyn AccountAuthenticator>,
     session: SessionSigner,
     addr: &str,
     dev_mode: bool,
     secure_cookies: bool,
     dev_unlock_secret: Option<Arc<str>>,
+    invite_only: Arc<AtomicBool>,
+    admin_subnets: Arc<[IpNet]>,
+    admin_secret: Option<Arc<str>>,
 ) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     println!("Democratos listening on http://{addr}");
@@ -40,10 +47,15 @@ pub async fn serve(
         router(
             services,
             writes,
+            minter,
+            authenticator,
             session,
             dev_mode,
             secure_cookies,
             dev_unlock_secret,
+            invite_only,
+            admin_subnets,
+            admin_secret,
         )
         .into_make_service_with_connect_info::<SocketAddr>(),
     )

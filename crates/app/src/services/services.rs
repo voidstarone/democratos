@@ -5,12 +5,13 @@ use std::sync::Arc;
 use std::collections::HashSet;
 
 use domain::{
-    bot_score, enfranchisement_slots, evaluate_eligibility, is_likely_bot, reach_verdict,
-    select_jury, slugify, BotSignals, Comment, CommentId, ContentScale, Demos, DemosId,
-    Eligibility, FeedPaging, FoundingId, FoundingPetition, Media, Membership, Phase, Post, PostId,
-    PostingPolicy, Proposal, ProposalId, ProposalKind, ProposalStatus, Report, ReportId,
-    ReportReason, ReportStatus, ReportTarget, Rule, Tier, Timestamp, Trial, TrialId, User, UserId,
-    Verdict, VoteWeighting,
+    bot_score, enfranchisement_slots, evaluate_eligibility, is_likely_bot, outcome_for,
+    reach_verdict, select_jury, slugify, BotSignals, Comment, CommentId, ContentScale, Demos,
+    DemosId, Eligibility, FeedPaging, FoundingId, FoundingPetition, InviteId, InviteRequest, Media,
+    Membership, Phase, Post,
+    PostId, PostingPolicy, Proposal, ProposalId, ProposalKind, ProposalStatus, Report, ReportId,
+    ReportReason, ReportStatus, ReportTarget, ReviewOutcome, Rule, SensitiveCase, SensitiveCaseId,
+    SensitiveTag, Tier, Timestamp, Trial, TrialId, User, UserId, Verdict, VoteWeighting,
 };
 
 use domain::feed_threshold;
@@ -24,18 +25,21 @@ use crate::identity::jury_vote_message::jury_vote_message;
 use crate::identity::post_vote_message::post_vote_message;
 use crate::identity::user_public_key::UserPublicKey;
 use crate::identity::vote_message::vote_message;
+use crate::invite::hash_token::hash_token;
+use crate::invite::new_invite_token::new_invite_token;
 use crate::{
-    AgeVerifier, Clock, CommentStore, CommentVoteStore, DemosStore, FoundingStore, MediaStore,
-    MediaVerdict, MembershipStore, NsfwScanner, PostStore, PostVoteStore, ProposalStore,
-    RecommendFeed, RefreshRecommendations, ReportStore, RuleStore, SimilarityIndex, TrialStore,
-    UserStore, VoteStore,
+    AgeVerifier, Clock, CommentStore, CommentVoteStore, DemosStore, FoundingStore,
+    InviteRequestStore, MediaStore, MediaVerdict, MembershipStore, Notifier, NsfwScanner, PostStore,
+    PostVoteStore, ProposalStore, RecommendFeed, RefreshRecommendations, ReportStore, RuleStore,
+    SensitiveCaseStore, SettingsStore, SimilarityIndex, TrialStore, UserStore, VoteStore,
 };
 use crate::{
-    AuthenticateError, CanPostError, CastJuryVoteError, CastVoteError, CloseProposalError,
-    CreatePostError, EnrollPublicKeyError, EnsureBarredAccountError, FoundDemosError,
-    MemberActionError, OpenProposalError, OpenTrialError, RegisterAccountError, Result,
-    SetFeedPagingError, SettleTrialError, SignFoundingError, StartFoundingError, StoreError,
-    VerifyActionError, VotePostError,
+    AcceptInviteError, ApproveInviteError, AuthenticateError, CanPostError, CastJuryVoteError,
+    CastVoteError, CloseProposalError, CreatePostError, EnrollPublicKeyError,
+    EnsureBarredAccountError, FoundDemosError, MemberActionError, OpenProposalError, OpenTrialError,
+    RegisterAccountError, RequestInviteError, Result, SensitiveReviewError, SetFeedPagingError,
+    SettleTrialError, SignFoundingError, StartFoundingError, StoreError, VerifyActionError,
+    VotePostError,
 };
 
 use super::enfranchise_outcome::EnfranchiseOutcome;
@@ -58,6 +62,19 @@ fn voting_window_days(kind: &ProposalKind) -> i64 {
         BanOrRecall => 5,
         Constitutional => 7,
     }
+}
+
+/// Alert the operator that a review upheld a CSAM classification. There is a legal
+/// duty to preserve the material and report it to the NCMEC CyberTipline (18 U.S.C.
+/// §2258A); the content is already taken down, but a human must act on the report.
+/// Logged at ERROR so it cannot pass unnoticed. (Byte-level preservation to the
+/// media quarantine is a follow-up — see docs/sensitive-content-review-plan.md.)
+fn escalate_to_operator(target: ReportTarget) {
+    tracing::error!(
+        ?target,
+        "SENSITIVE REVIEW: content classified as CSAM and removed — PRESERVE the material \
+         and file a NCMEC CyberTipline report (18 U.S.C. §2258A)"
+    );
 }
 
 /// The signed integer value of an up/down/clear vote: `+1` up, `-1` down, `0`
@@ -85,6 +102,16 @@ pub struct Services {
     pub posts: Arc<dyn PostStore>,
     pub comments: Arc<dyn CommentStore>,
     pub reports: Arc<dyn ReportStore>,
+    /// The node-local access waitlist (invite requests), used only while the node
+    /// runs invitation-only.
+    pub invites: Arc<dyn InviteRequestStore>,
+    /// Operator settings that survive a restart — today just the invitation-only
+    /// toggle.
+    pub settings: Arc<dyn SettingsStore>,
+    /// Delivers the invite-approval email (SMTP in prod, a log sink in dev).
+    pub notifier: Arc<dyn Notifier>,
+    /// Platform-wide sensitive-content review cases (the extra-demos review queue).
+    pub sensitive_cases: Arc<dyn SensitiveCaseStore>,
     pub trials: Arc<dyn TrialStore>,
     pub post_votes: Arc<dyn PostVoteStore>,
     pub comment_votes: Arc<dyn CommentVoteStore>,
@@ -104,6 +131,13 @@ pub struct Services {
     /// "rollout fallback"). Leave off only during initial key rollout on a trusted
     /// single box; turn on before opening the federation to untrusted nodes.
     pub require_signatures: bool,
+    /// Public origin (`scheme://host[:port]`) this node is reached at, used to
+    /// build absolute invite-accept links for the approval email. No trailing
+    /// slash.
+    pub public_base_url: String,
+    /// How many days an issued invite token stays valid before it must be
+    /// re-approved.
+    pub invite_token_ttl_days: i64,
     pub clock: Arc<dyn Clock>,
 }
 
@@ -194,6 +228,168 @@ impl Services {
             .await?)
     }
 
+    // --- profile page -----------------------------------------------------
+
+    /// Look up an account by handle — backs the public profile page at `/u/:handle`.
+    pub async fn user_by_handle(&self, handle: &str) -> Result<Option<User>> {
+        self.users.by_handle(handle.trim()).await
+    }
+
+    /// Every non-removed post by `author`, newest first. Filters the site-wide
+    /// list (the same source search uses) — fine at a profile's scale.
+    pub async fn posts_by_author(&self, author: UserId) -> Result<Vec<Post>> {
+        let mut posts: Vec<Post> = self
+            .posts
+            .list_all()
+            .await?
+            .into_iter()
+            .filter(|p| p.author == author && !p.removed)
+            .collect();
+        posts.sort_by(|a, b| b.created_at.0.cmp(&a.created_at.0));
+        Ok(posts)
+    }
+
+    /// Every non-removed comment by `author`, newest first.
+    pub async fn comments_by_author(&self, author: UserId) -> Result<Vec<Comment>> {
+        let mut comments: Vec<Comment> = self
+            .comments
+            .list_by_author(author)
+            .await?
+            .into_iter()
+            .filter(|c| !c.removed)
+            .collect();
+        comments.sort_by(|a, b| b.created_at.0.cmp(&a.created_at.0));
+        Ok(comments)
+    }
+
+    // --- invitation-only access -------------------------------------------
+
+    /// Whether new sign-ups currently require an invite. Reads the persisted
+    /// operator toggle, falling back to `default_when_unset` (the node's boot
+    /// flag) when it has never been set. Cheap enough to call per request.
+    pub async fn is_invite_only(&self, default_when_unset: bool) -> Result<bool> {
+        Ok(self
+            .settings
+            .is_invite_only()
+            .await?
+            .unwrap_or(default_when_unset))
+    }
+
+    /// Turn invitation-only access on or off, persisting the choice so it survives
+    /// a restart.
+    pub async fn set_invite_only(&self, invite_only: bool) -> Result<()> {
+        self.settings.set_invite_only(invite_only).await
+    }
+
+    /// Take a request for an account from the public waitlist form.
+    ///
+    /// Deliberately idempotent and enumeration-safe: a blank email is rejected,
+    /// but an email that already has a live request — or already belongs to an
+    /// account — quietly returns `Ok` without creating a second row and without
+    /// revealing which case it was. So the public form can never be used to probe
+    /// who is already registered or already waiting.
+    pub async fn request_invite(
+        &self,
+        email: &str,
+        note: Option<&str>,
+    ) -> Result<(), RequestInviteError> {
+        let email = domain::normalize_email(email);
+        domain::validate_email(&email).map_err(|e| RequestInviteError::Rejected(e.message()))?;
+
+        // Already an account, or already on the list → no-op, no leak.
+        if self.users.by_email(&email).await?.is_some() {
+            return Ok(());
+        }
+        if self.invites.by_email(&email).await?.is_some() {
+            return Ok(());
+        }
+
+        let note = note.map(str::trim).filter(|n| !n.is_empty());
+        self.invites
+            .create(&email, note, self.clock.now())
+            .await?;
+        Ok(())
+    }
+
+    /// The review queue: every request still awaiting a decision, oldest first.
+    pub async fn list_pending_invites(&self) -> Result<Vec<InviteRequest>> {
+        self.invites.list_pending().await
+    }
+
+    /// Approve a pending request: mint a one-time token, email the requester the
+    /// accept link, and — only if the email is accepted for delivery — record the
+    /// approval. The email goes out *before* the store is marked so a delivery
+    /// failure leaves the request pending and retryable rather than approved yet
+    /// unreachable.
+    pub async fn approve_invite(&self, id: InviteId) -> Result<(), ApproveInviteError> {
+        let request = self
+            .invites
+            .get(id)
+            .await?
+            .ok_or(ApproveInviteError::NotPending)?;
+        if request.status != domain::InviteStatus::Pending {
+            return Err(ApproveInviteError::NotPending);
+        }
+
+        let token = new_invite_token();
+        let accept_url = format!(
+            "{}/invite/accept?token={}",
+            self.public_base_url.trim_end_matches('/'),
+            token
+        );
+        // Deliver first — if this fails, the request stays Pending.
+        self.notifier
+            .notify_invite_approved(&request.email, &accept_url)
+            .await?;
+
+        let now = self.clock.now();
+        let expires_at = now.plus_days(self.invite_token_ttl_days);
+        self.invites
+            .approve(id, &hash_token(&token), expires_at, now)
+            .await?;
+        Ok(())
+    }
+
+    /// Reject a pending request. No email is sent.
+    pub async fn reject_invite(&self, id: InviteId) -> Result<(), ApproveInviteError> {
+        let request = self
+            .invites
+            .get(id)
+            .await?
+            .ok_or(ApproveInviteError::NotPending)?;
+        if request.status != domain::InviteStatus::Pending {
+            return Err(ApproveInviteError::NotPending);
+        }
+        self.invites.reject(id, self.clock.now()).await?;
+        Ok(())
+    }
+
+    /// Resolve a raw invite token to its (still-redeemable) request, so the accept
+    /// flow can bind the new account to the invited email. Returns the opaque
+    /// [`AcceptInviteError::InvalidToken`] for an unknown, expired, or already-used
+    /// token alike.
+    pub async fn validate_invite_token(
+        &self,
+        token: &str,
+    ) -> Result<InviteRequest, AcceptInviteError> {
+        let request = self
+            .invites
+            .by_token_hash(&hash_token(token))
+            .await?
+            .ok_or(AcceptInviteError::InvalidToken)?;
+        if !request.is_redeemable(self.clock.now()) {
+            return Err(AcceptInviteError::InvalidToken);
+        }
+        Ok(request)
+    }
+
+    /// Consume an approved invite once its account has been created — makes the
+    /// token single-use.
+    pub async fn mark_invite_accepted(&self, id: InviteId) -> Result<(), AcceptInviteError> {
+        self.invites.mark_accepted(id).await?;
+        Ok(())
+    }
+
     /// Verify an email + password login. Returns the account on success and the
     /// opaque [`AuthenticateError::InvalidCredentials`] on any failure — unknown
     /// email, a credential-less account, or a wrong password all look identical.
@@ -219,6 +415,39 @@ impl Services {
             None => {
                 // A credential-less account (dev/seed user) can't be logged into,
                 // but must still cost the same to reject as any other account.
+                spend_verify_time(password);
+                false
+            }
+        };
+        if matches {
+            Ok(user)
+        } else {
+            Err(AuthenticateError::InvalidCredentials)
+        }
+    }
+
+    /// Verify a **handle** + password login. The federated equivalent of
+    /// [`authenticate`](Self::authenticate): handles replicate across nodes (emails
+    /// do not — they are redacted from the feed), so cross-node login and the
+    /// delegated-auth path a trusted issuer runs both key on the handle. Failure is
+    /// the same opaque [`AuthenticateError::InvalidCredentials`], and an unknown or
+    /// credential-less handle still spends the verification time so account existence
+    /// never leaks by timing.
+    pub async fn authenticate_by_handle(
+        &self,
+        handle: &str,
+        password: &str,
+    ) -> Result<User, AuthenticateError> {
+        let user = match self.users.by_handle(handle.trim()).await? {
+            Some(u) => u,
+            None => {
+                spend_verify_time(password);
+                return Err(AuthenticateError::InvalidCredentials);
+            }
+        };
+        let matches = match user.password_hash.as_deref() {
+            Some(hash) => verify_password(password, hash),
+            None => {
                 spend_verify_time(password);
                 false
             }
@@ -842,6 +1071,160 @@ impl Services {
         Ok(true)
     }
 
+    // --- sensitive-content review (platform-wide, extra-demos) ------------
+
+    /// Opt an account in to (or out of) reviewing platform-wide sensitive content.
+    /// Default off; deliberately not a demos tier.
+    pub async fn set_sensitive_reviewer(
+        &self,
+        user: UserId,
+        is_reviewer: bool,
+    ) -> Result<(), SensitiveReviewError> {
+        Ok(self.users.set_sensitive_reviewer(user, is_reviewer).await?)
+    }
+
+    /// Flag a post/comment as sensitive. Any signed-in user may flag; the content
+    /// is **hidden pending review immediately** and a platform-wide review case is
+    /// opened (or the flag merges into the open one). Returns the case.
+    pub async fn flag_sensitive(
+        &self,
+        reporter: UserId,
+        target: ReportTarget,
+        note: &str,
+    ) -> Result<SensitiveCase, SensitiveReviewError> {
+        // Hide the target now — flagging errs toward caution.
+        match target {
+            ReportTarget::Post(p) => {
+                if self.posts.get(p).await?.is_none() {
+                    return Err(SensitiveReviewError::Rejected("no such post".into()));
+                }
+                self.posts.set_pending_review(p, true).await?;
+            }
+            ReportTarget::Comment(c) => {
+                if self.comments.get(c).await?.is_none() {
+                    return Err(SensitiveReviewError::Rejected("no such comment".into()));
+                }
+                self.comments.set_pending_review(c, true).await?;
+            }
+            ReportTarget::User(_) => {
+                return Err(SensitiveReviewError::Rejected(
+                    "only posts and comments can be flagged sensitive".into(),
+                ))
+            }
+        }
+        let now = self.clock.now();
+        match self.sensitive_cases.open_for_target(target).await? {
+            Some(case) => Ok(case),
+            None => Ok(self
+                .sensitive_cases
+                .create(Some(reporter), target, note, now)
+                .await?),
+        }
+    }
+
+    /// The open review queue — reviewer-only.
+    pub async fn list_review_queue(
+        &self,
+        reviewer: UserId,
+    ) -> Result<Vec<SensitiveCase>, SensitiveReviewError> {
+        self.require_sensitive_reviewer(reviewer).await?;
+        Ok(self.sensitive_cases.list_open().await?)
+    }
+
+    /// How many cases are open — backs the reviewer nav badge.
+    pub async fn open_case_count(&self) -> Result<u64> {
+        self.sensitive_cases.count_open().await
+    }
+
+    /// Cast a reviewer's classification on a case. Reviewer-only; one vote per
+    /// reviewer (a repeat corrects it). Once at least
+    /// [`REVIEW_QUORUM`](domain::REVIEW_QUORUM) reviewers have voted, the plurality
+    /// tag resolves the case and its disposition is applied to the content.
+    pub async fn cast_review_vote(
+        &self,
+        reviewer: UserId,
+        case_id: SensitiveCaseId,
+        tag: SensitiveTag,
+    ) -> Result<SensitiveCase, SensitiveReviewError> {
+        self.require_sensitive_reviewer(reviewer).await?;
+        let mut case = self
+            .sensitive_cases
+            .get(case_id)
+            .await?
+            .ok_or(StoreError::NotFound)?;
+        if case.status != domain::SensitiveCaseStatus::Open {
+            return Err(SensitiveReviewError::AlreadyResolved);
+        }
+        let now = self.clock.now();
+        case.cast(reviewer, tag, now);
+        // Resolve if the quorum is now met, and carry out the disposition.
+        if let Some(winner) = case.try_resolve() {
+            self.apply_review_outcome(case.target, outcome_for(winner)).await?;
+        }
+        self.sensitive_cases.update(&case).await?;
+        Ok(case)
+    }
+
+    /// Carry out a resolved case's disposition on its target.
+    async fn apply_review_outcome(
+        &self,
+        target: ReportTarget,
+        outcome: ReviewOutcome,
+    ) -> Result<(), SensitiveReviewError> {
+        match (target, outcome) {
+            // False flag → un-hide, unchanged.
+            (ReportTarget::Post(p), ReviewOutcome::Restore) => {
+                self.posts.set_pending_review(p, false).await?;
+            }
+            (ReportTarget::Comment(c), ReviewOutcome::Restore) => {
+                self.comments.set_pending_review(c, false).await?;
+            }
+            // Lawful adult content → un-hide but NSFW-gate (posts carry the flag;
+            // comments have no NSFW blur, so they are simply restored).
+            (ReportTarget::Post(p), ReviewOutcome::AgeGate) => {
+                self.posts.set_is_nsfw(p, true).await?;
+                self.posts.set_pending_review(p, false).await?;
+            }
+            (ReportTarget::Comment(c), ReviewOutcome::AgeGate) => {
+                self.comments.set_pending_review(c, false).await?;
+            }
+            // Upheld → take down platform-wide.
+            (ReportTarget::Post(p), ReviewOutcome::Remove { escalate }) => {
+                self.posts.set_removed(p, true).await?;
+                self.posts.set_pending_review(p, false).await?;
+                if escalate {
+                    escalate_to_operator(target);
+                }
+            }
+            (ReportTarget::Comment(c), ReviewOutcome::Remove { escalate }) => {
+                self.comments.set_removed(c, true).await?;
+                self.comments.set_pending_review(c, false).await?;
+                if escalate {
+                    escalate_to_operator(target);
+                }
+            }
+            (ReportTarget::User(_), _) => {}
+        }
+        Ok(())
+    }
+
+    /// The reviewer gate: the account must have opted in to sensitive-content
+    /// review. Deliberately a platform account attribute, not a demos membership.
+    async fn require_sensitive_reviewer(
+        &self,
+        user: UserId,
+    ) -> Result<(), SensitiveReviewError> {
+        let u = self
+            .users
+            .get(user)
+            .await?
+            .ok_or(StoreError::NotFound)?;
+        if !u.is_sensitive_reviewer {
+            return Err(SensitiveReviewError::NotReviewer);
+        }
+        Ok(())
+    }
+
     // --- NSFW age gate & verification -------------------------------------
 
     /// Run age verification for `user` through the provider; on success persist
@@ -889,7 +1272,7 @@ impl Services {
         };
         let posts = candidates
             .into_iter()
-            .filter(|p| !p.removed)
+            .filter(|p| !p.removed && !p.pending_review)
             .filter(|p| {
                 tag.as_ref()
                     .map_or(true, |t| p.tags.iter().any(|pt| pt == t))
@@ -1094,7 +1477,7 @@ impl Services {
             .collect();
         let mut items: Vec<FeedItem> = Vec::new();
         for post in self.posts.list_all().await? {
-            if post.removed {
+            if post.removed || post.pending_review {
                 continue;
             }
             let score = self.post_votes.score(post.id).await?;
@@ -1126,7 +1509,7 @@ impl Services {
             };
             let threshold = feed_threshold(self.memberships.voter_count(demos.id).await?);
             for post in self.posts.list(demos.id).await? {
-                if post.removed {
+                if post.removed || post.pending_review {
                     continue;
                 }
                 let score = self.post_votes.score(post.id).await?;

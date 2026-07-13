@@ -38,4 +38,7 @@ pub trait UserStore: Send + Sync {
     async fn set_franchise_barred(&self, id: UserId, barred: bool) -> Result<()>;
     /// Persist the account's feed-delivery preference (paged vs. lazy-loaded).
     async fn set_feed_paging(&self, id: UserId, paging: FeedPaging) -> Result<()>;
+    /// Opt the account in to (or out of) reviewing platform-wide sensitive content.
+    /// Default off; deliberately not a demos tier.
+    async fn set_sensitive_reviewer(&self, id: UserId, is_reviewer: bool) -> Result<()>;
 }

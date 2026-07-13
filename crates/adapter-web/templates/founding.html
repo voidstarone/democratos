@@ -3,7 +3,7 @@
 {% block head %}
 <style>
   .founding { max-width: 560px; }
-  /* Progress toward quorum: a filled bar plus the "N / 9" count. */
+  /* Progress toward quorum: a filled bar plus the "N / 10" count (founder incl.). */
   .founding-progress { display: flex; align-items: center; gap: .6rem; margin: .4rem 0 1rem; }
   .founding-bar { flex: 1; height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
   .founding-bar span { display: block; height: 100%; background: var(--accent);
@@ -44,7 +44,7 @@
     <button>{{ t.sign_off_button }}</button>
   </form>
 {% else %}
-  <p class="muted"><a href="/signin">{{ t.founding_signin_to_sign }}</a></p>
+  <p class="muted"><a href="/signin?next=/found/{{ id }}">{{ t.founding_signin_to_help_found }}</a></p>
 {% endif %}
 
 <p class="muted"><small>{{ t.founding_needs_note }}</small></p>

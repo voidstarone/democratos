@@ -32,6 +32,13 @@ pub enum AuthError {
     /// store a row that every later read then fails to parse — a poisoned-row
     /// denial of service — so it is refused at the boundary instead.
     MalformedPayload,
+    /// A **global** row (a user account) was minted by a node that is not a
+    /// federation-trusted account issuer — it holds no valid root-signed
+    /// [`IssuerCert`](crate::IssuerCert). Only trusted servers may create accounts
+    /// that replicate fleet-wide, so an un-certified node's accounts are refused
+    /// everywhere. This is what stops a rogue operator standing up a node and
+    /// minting accounts across communities.
+    UntrustedIssuer,
     /// The control plane could not be consulted.
     Registry(String),
     /// The signer holds the community's ownership lease, but the community's
@@ -51,6 +58,9 @@ impl std::fmt::Display for AuthError {
             AuthError::NotOwner => write!(f, "signer is not the community's owner"),
             AuthError::StaleEpoch => write!(f, "event produced under a stale ownership epoch"),
             AuthError::WrongHome => write!(f, "global row signed by a node that is not its home"),
+            AuthError::UntrustedIssuer => {
+                write!(f, "account minted by a node that is not a trusted issuer")
+            }
             AuthError::ScopeMismatch => write!(f, "event payload carries no resolvable community"),
             AuthError::MalformedPayload => {
                 write!(f, "row document does not match its entity's domain type")

@@ -11,6 +11,15 @@
 
 # ---- build stage ------------------------------------------------------------
 FROM rust:1-bookworm AS builder
+
+# `etcd-client`'s build script compiles the etcd .proto definitions and needs
+# `protoc`, which the base image does not ship. Install it in its own layer so it
+# stays cached across source changes. (The rest of the workspace's native build
+# needs — cc, etc. — are already in rust:bookworm.)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /src
 
 # Copy the whole workspace and build the release binary. (For faster iterative

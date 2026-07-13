@@ -24,6 +24,20 @@ pub async fn enroll_key(
     let Some(user) = current_user(&state, &headers).await else {
         return render_error(lang, None, "sign in first".to_string());
     };
+    // Key enrolment is authoritative only on the account's HOME node — the one that
+    // holds its credentials. A signing key is a *permanent*, first-key-only grant, so
+    // letting a relaying node enrol one would let a malicious host substitute its own
+    // key and forge this account's governance forever (surviving a password change).
+    // Credentials never replicate, so `password_hash == None` here means this is not
+    // the home node: refuse rather than write a local value replication would discard.
+    // (A federated account must enrol on its home server.)
+    if user.password_hash.is_none() {
+        return render_error(
+            lang,
+            Some(user.handle),
+            "signing keys can only be enrolled on your account's home server".to_string(),
+        );
+    }
     match state
         .services
         .enroll_public_key(user.id, form.public_key.trim())

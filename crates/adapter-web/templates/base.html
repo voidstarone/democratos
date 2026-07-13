@@ -144,12 +144,45 @@
   .composer-panel { position:relative; padding:1.25rem 1.5rem 1.5rem; }
   .composer-panel h1 { margin-top:.25rem; }
   .composer-close { position:absolute; top:.7rem; right:.7rem; line-height:1; padding:.2rem .55rem; }
+  /* Responsive content media: never let an uploaded image/video push the page
+     wider than its column. `.thumb` (fixed 56px) wins on specificity, so feed
+     thumbnails keep their size. */
+  main img, main video { max-width:100%; height:auto; }
+  .media img, .media video { display:block; width:100%; height:auto;
+                             max-height:75vh; object-fit:contain; border-radius:8px; }
+  /* Long unbroken strings (URLs, tokens, handles) wrap instead of forcing a
+     horizontal scrollbar on narrow screens. */
+  body { overflow-wrap:break-word; }
+  .handle-link { max-width:11rem; overflow:hidden; text-overflow:ellipsis; }
+  /* Profile (and any) tabbed sections — plain links styled as a tab strip; the
+     active one is server-marked, so it needs no JavaScript. Scrolls sideways
+     rather than wrapping if it ever outgrows a narrow screen. */
+  .tabs { display:flex; gap:.25rem; margin:.5rem 0 1rem; border-bottom:1px solid var(--line);
+          overflow-x:auto; }
+  .tabs .tab { padding:.5rem .9rem; font-weight:600; color:var(--muted); text-decoration:none;
+               white-space:nowrap; border-bottom:2px solid transparent; margin-bottom:-1px; }
+  .tabs .tab:hover { color:var(--accent-ink); text-decoration:none; }
+  .tabs .tab-active { color:var(--accent-ink); border-bottom-color:var(--accent); }
+
   /* On narrow viewports give the search its own full-width row beneath the
      brand/nav/auth controls, so nothing has to cram onto a single line. */
   @media (max-width: 640px) {
     header { gap:.5rem .75rem; padding:.6rem .9rem; }
     .header-search { order:99; flex-basis:100%; max-width:none; }
     .header-actions { margin-left:auto; }
+    h1 { font-size:1.45rem; } h2 { font-size:1.2rem; }
+    main { margin:1rem auto; padding:0 1rem; }
+    .card { padding:.85rem 1rem; }
+  }
+  /* Below the phone breakpoint, collapse the wordmark to just the ⚖ glyph to
+     reclaim the row for the actions; the link keeps its aria-label. */
+  @media (max-width: 560px) {
+    .brand-word { display:none; }
+    .brand { font-size:1.3rem; }
+  }
+  /* Roomier tap targets on touch devices, without bloating the mouse layout. */
+  @media (pointer: coarse) {
+    .nav-link, .pager a, .feed-more, .chip { padding-top:.45rem; padding-bottom:.45rem; }
   }
   /* Motion is confirmation, never decoration — honour a reduced-motion request
      by dropping every transition and keyframe while keeping all end states. */
@@ -162,7 +195,7 @@
 </head>
 <body>
 <header>
-  <a href="/" class="brand"><strong>{{ t.brand }}</strong></a>
+  <a href="/" class="brand" aria-label="Democratos"><strong><span class="brand-mark" aria-hidden="true">⚖</span><span class="brand-word"> Democratos</span></strong></a>
   <a href="/top" class="nav-link">{{ t.top_link }}</a>
   <form method="get" action="/search" class="inline row header-search" role="search">
     <input type="search" name="q" placeholder="{{ t.search_placeholder }}" aria-label="{{ t.search_heading }}">
@@ -173,11 +206,15 @@
   {% match current_user %}
   {% when Some with (handle) %}
     <a href="/submit" class="nav-link create-post-nav" data-enhance="composer">{{ t.new_post_button }}</a>
-    <span class="muted">{{ t.signed_in_as }} <strong>{{ handle }}</strong></span>
+    <a href="/u/{{ handle }}" class="nav-link handle-link">@{{ handle }}</a>
     <a href="/preferences" class="nav-link">{{ t.preferences_link }}</a>
+    <!-- Reviewer link: a script adds a "Review" link for opted-in reviewers, with a
+         count pill when their queue is non-empty. -->
+    <span id="review-badge"></span>
     <form method="post" action="/logout" class="inline"><button class="ghost">{{ t.log_out }}</button></form>
   {% when None %}
     <a href="/signin" class="nav-link">{{ t.sign_in_register }}</a>
+    <a href="/register" class="nav-link">{{ t.sign_up }}</a>
   {% endmatch %}
     <form method="post" action="/lang" class="inline">
       <select name="lang" data-autosubmit aria-label="language">
@@ -191,6 +228,35 @@
 <main>
 {% block content %}{% endblock %}
 </main>
+<script>
+// Show the sensitive-content review badge only for opted-in reviewers who have a
+// non-empty queue. The endpoint identifies the caller from the session cookie.
+(function () {
+  var el = document.getElementById('review-badge');
+  if (!el) return;
+  fetch('/review/summary', { headers: { 'x-requested-with': 'fetch' } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      // Opted-in reviewers always get a link to their queue, so it's reachable
+      // even when empty; the count pill appears only when there are open cases.
+      if (d && d.reviewer) {
+        var a = document.createElement('a');
+        a.href = '/review';
+        a.className = 'nav-link';
+        a.textContent = 'Review';
+        if (d.open > 0) {
+          a.textContent = 'Review ';
+          var pill = document.createElement('span');
+          pill.className = 'pill';
+          pill.textContent = d.open;
+          a.appendChild(pill);
+        }
+        el.appendChild(a);
+      }
+    })
+    .catch(function () {});
+})();
+</script>
 <script src="/static/app.js" defer></script>
 <script src="/static/dev.js" defer></script>
 </body>

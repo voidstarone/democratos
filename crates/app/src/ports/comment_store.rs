@@ -18,6 +18,8 @@ pub trait CommentStore: Send + Sync {
     ) -> Result<Comment>;
     async fn get(&self, id: CommentId) -> Result<Option<Comment>>;
     async fn set_removed(&self, id: CommentId, removed: bool) -> Result<()>;
+    /// Hide (or un-hide) a comment pending sensitive-content review.
+    async fn set_pending_review(&self, id: CommentId, pending: bool) -> Result<()>;
     async fn list_for_post(&self, post: PostId) -> Result<Vec<Comment>>;
     async fn count_by_author_since(&self, author: UserId, since: Timestamp) -> Result<u64>;
     /// Every comment this user has authored, across all posts. Backs the

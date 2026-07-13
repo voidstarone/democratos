@@ -46,6 +46,17 @@
     </label>
   </fieldset>
 
+  <fieldset class="pref-group">
+    <legend>{{ t.pref_review_heading }}</legend>
+    <label class="pref-option">
+      <input type="checkbox" name="review_sensitive" value="on"{% if is_sensitive_reviewer %} checked{% endif %}>
+      <span>
+        <span class="label">{{ t.pref_review_label }}</span>
+        <p class="desc">{{ t.pref_review_desc }}</p>
+      </span>
+    </label>
+  </fieldset>
+
   <button type="submit">{{ t.save_button }}</button>
 </form>
 {% endblock %}

@@ -16,6 +16,7 @@ pub mod guard_federation_exposure;
 pub mod is_loopback_bind;
 pub mod parse_endpoints;
 pub mod parse_peer;
+pub mod reconcile_orphan_handles;
 pub mod require_tls_for_remote;
 pub mod spawn_maintenance;
 pub mod spawn_rehoming;

@@ -30,6 +30,19 @@ impl FoundingPetition {
         SIGN_OFFS_REQUIRED.saturating_sub(self.sign_offs.len())
     }
 
+    /// Sign-ups so far *including the founder*, who is counted as the first — so
+    /// progress runs 1..=[`founding_quorum`](Self::founding_quorum), never 0.
+    pub fn signed_with_founder(&self) -> usize {
+        self.sign_offs.len() + 1
+    }
+
+    /// Total sign-ups to found, counting the founder: the [`SIGN_OFFS_REQUIRED`]
+    /// co-signers plus the founder. Derived, so tuning the co-signer quorum moves
+    /// this in lock-step (never hardcode the total).
+    pub fn founding_quorum(&self) -> usize {
+        SIGN_OFFS_REQUIRED + 1
+    }
+
     /// Whether `user` has already signed off (the founder never counts as a signer).
     pub fn is_signed_by(&self, user: UserId) -> bool {
         self.sign_offs.contains(&user)

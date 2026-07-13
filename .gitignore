@@ -9,6 +9,14 @@ deploy/test/.run/
 !.env.example
 # The text-store data file contains user emails and Argon2 password hashes.
 democratos.json
+# Federation control-plane TLS material (internal CA, etcd server + client keys).
+deploy/prod/etcd-certs/
+deploy/prod/*/certs/
+# Signed issuer certs and the OFFLINE federation root seed.
+deploy/prod/*.issuer.json
+deploy/prod/*.root-seed
+# Shipped prebuilt image bundle (large binary artifact).
+deploy/prod/*.tar.gz
 # Derived recommender indexes and uploaded media.
 *.recindex
 media/

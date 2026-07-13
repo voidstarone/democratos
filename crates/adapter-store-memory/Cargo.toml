@@ -15,5 +15,6 @@ async-trait = { workspace = true }
 tokio = { workspace = true }
 adapter-recommend-memory = { workspace = true }
 adapter-moderation-local = { workspace = true }
+adapter-notify = { workspace = true }
 # Stands in for a user's device-held secret key when signing test actions.
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }

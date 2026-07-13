@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}@{{ handle }} · Democratos{% endblock %}
+{% block content %}
+<h1>@{{ handle }}</h1>
+
+{# Tabs are ordinary links to ?tab=… so switching works with no JavaScript. #}
+<nav class="tabs" aria-label="profile sections">
+  <a href="/u/{{ handle }}" class="tab{% if tab == "posts" %} tab-active{% endif %}"{% if tab == "posts" %} aria-current="page"{% endif %}>{{ t.profile_posts_tab }}</a>
+  <a href="/u/{{ handle }}?tab=comments" class="tab{% if tab == "comments" %} tab-active{% endif %}"{% if tab == "comments" %} aria-current="page"{% endif %}>{{ t.profile_comments_tab }}</a>
+</nav>
+
+{% if tab == "comments" %}
+  {% if comments.is_empty() %}
+    <p class="muted">{{ t.profile_no_comments }}</p>
+  {% else %}
+    {% for c in comments %}
+    <div class="card">
+      <p>{{ c.body }}</p>
+      <p class="muted" style="margin:.4rem 0 0"><small><a href="/post/{{ c.post_id }}">{{ t.profile_in_context }} →</a></small></p>
+    </div>
+    {% endfor %}
+  {% endif %}
+{% else %}
+  {% if posts.is_empty() %}
+    <p class="muted">{{ t.profile_no_posts }}</p>
+  {% else %}
+    {% for p in posts %}
+    <div class="card">
+      <a class="post-title" href="/post/{{ p.id }}">{{ p.title }}</a>
+    </div>
+    {% endfor %}
+  {% endif %}
+{% endif %}
+{% endblock %}

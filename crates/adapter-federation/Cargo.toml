@@ -26,3 +26,4 @@ sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres"
 adapter-recommend-memory = { workspace = true }
 adapter-moderation-local = { workspace = true }
 adapter-media-local = { workspace = true }
+adapter-notify = { workspace = true }

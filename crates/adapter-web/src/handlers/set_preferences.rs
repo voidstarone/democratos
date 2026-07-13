@@ -31,12 +31,25 @@ pub async fn set_preferences(
         "lazy" => FeedPaging::Lazy,
         _ => FeedPaging::Auto,
     };
-    let saved = state.services.set_feed_paging(user.id, paging).await.is_ok();
+    // A checkbox sends a value only when ticked; absence means "off".
+    let wants_review = form.review_sensitive.is_some();
+    let paging_saved = state.services.set_feed_paging(user.id, paging).await.is_ok();
+    let review_saved = state
+        .services
+        .set_sensitive_reviewer(user.id, wants_review)
+        .await
+        .is_ok();
+    let saved = paging_saved && review_saved;
     render(PreferencesView {
         t: lang.strings(),
         lang: lang.code(),
         // Reflect what we just stored (the in-hand `user` still holds the old value).
-        feed_paging: paging_str(if saved { paging } else { user.feed_paging }),
+        feed_paging: paging_str(if paging_saved { paging } else { user.feed_paging }),
+        is_sensitive_reviewer: if review_saved {
+            wants_review
+        } else {
+            user.is_sensitive_reviewer
+        },
         current_user: Some(user.handle),
         saved,
     })

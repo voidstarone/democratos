@@ -22,6 +22,9 @@ fn build() -> Services {
         posts: store.clone(),
         comments: store.clone(),
         reports: store.clone(),
+        invites: store.clone(),
+        settings: store.clone(),
+        sensitive_cases: store.clone(),
         trials: store.clone(),
         post_votes: store.clone(),
         comment_votes: store.clone(),
@@ -31,6 +34,9 @@ fn build() -> Services {
         age_verifier: Arc::new(AutoApproveAgeVerifier),
         requires_age_verification: false,
         require_signatures: false,
+        notifier: Arc::new(adapter_notify::LogNotifier::new()),
+        public_base_url: "http://localhost".to_string(),
+        invite_token_ttl_days: 7,
         clock,
     }
 }

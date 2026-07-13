@@ -2,13 +2,15 @@
 
 use clap::Subcommand;
 
+use crate::issuer_command::IssuerCommand;
+
 #[derive(Subcommand)]
 pub(crate) enum Top {
     /// Run the web server (the HTTP driving adapter).
     Serve {
         /// Address to bind. In a container bind `0.0.0.0` so the port is
         /// reachable from outside; the default stays loopback for local runs.
-        #[arg(long, default_value = "127.0.0.1:3000", env = "DEMOCRATOS_ADDR")]
+        #[arg(long, default_value = "127.0.0.1:5080", env = "DEMOCRATOS_ADDR")]
         addr: String,
 
         /// How often the background task rebuilds the recommendation model
@@ -60,6 +62,13 @@ pub(crate) enum Top {
         #[arg(long, env = "DEMOCRATOS_FEDERATION_ADDR")]
         federation_addr: Option<String>,
 
+        /// This node's externally-reachable base URL for its federation endpoints,
+        /// published to the control plane so peers can discover it (e.g. to forward
+        /// account minting here when this node is a trusted issuer). A trusted issuer
+        /// must set this to receive delegated sign-ups.
+        #[arg(long, env = "DEMOCRATOS_ADVERTISE_URL")]
+        advertise_url: Option<String>,
+
         /// Control-plane etcd endpoints (comma-separated). Empty uses an
         /// in-process registry — correct only for a single node / dev.
         #[arg(long, default_value = "", env = "DEMOCRATOS_ETCD_ENDPOINTS")]
@@ -76,6 +85,10 @@ pub(crate) enum Top {
     /// Run a single command (the CLI driving adapter).
     #[command(subcommand)]
     Cli(adapter_cli::Command),
+
+    /// Manage federation-trusted account issuers (root keygen, certify, publish).
+    #[command(subcommand)]
+    Issuer(IssuerCommand),
 
     /// Populate a fresh store with dev fixtures: several communities, users
     /// spanning the whole popularity range, multi-media posts, comments, and

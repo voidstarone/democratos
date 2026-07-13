@@ -10,4 +10,7 @@ pub struct RegisterForm {
     pub(crate) password: String,
     #[serde(default)]
     pub(crate) csrf_token: String,
+    /// Optional same-site return path (validated via `safe_next` on submit).
+    #[serde(default)]
+    pub(crate) next: String,
 }

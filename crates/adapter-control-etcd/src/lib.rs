@@ -7,7 +7,19 @@
 //! democratos/nodes/<node>           → NodeLoad JSON         (lease → liveness)
 //! democratos/owners/<demos>/holder  → owner node id         (lease → ownership)
 //! democratos/owners/<demos>/epoch   → monotonic epoch       (persistent)
+//! democratos/issuers/<node>/cert    → IssuerCert JSON       (persistent)
 //! ```
+//!
+//! # Trusted account issuers
+//!
+//! User accounts are *global* rows with no per-community owner, so ownership can't
+//! gate them. Instead, the federation root (held offline) signs an
+//! [`IssuerCert`](federation::IssuerCert) for each server permitted to create
+//! accounts; the root's public half is configured per node via the
+//! `FEDERATION_TRUST_ROOT` env var. When it is set, [`federation::authorize`]
+//! accepts a global account only from a node holding a cert that verifies against
+//! it. When it is **unset** the registry trusts every node's accounts (legacy /
+//! single-fabric behaviour) — `connect` logs a warning so this is never silent.
 //!
 //! The **holder** key is written with this node's lease, so if the node stops
 //! heartbeating (crash / partition) etcd deletes it and the community becomes
@@ -33,12 +45,27 @@ use etcd_client::{
 };
 
 use domain::NodeId;
-use federation::{ClaimOutcome, NodeLoad, NodeStatus, Ownership, OwnershipRegistry, RegistryError};
+use federation::{
+    ClaimOutcome, IssuerCert, IssuerRootPublicKey, NodeLoad, NodeStatus, Ownership,
+    OwnershipRegistry, RegistryError,
+};
 
 const PREFIX: &str = "democratos";
 
 fn err(e: impl std::fmt::Display) -> RegistryError {
     RegistryError(e.to_string())
+}
+
+/// The federation trust root this node enforces account issuance against, read
+/// from `FEDERATION_TRUST_ROOT` (hex Ed25519 public key), or `None` if unset. An
+/// unset root means every node's accounts are trusted — the caller warns about it.
+fn issuer_root_from_env() -> Result<Option<IssuerRootPublicKey>, RegistryError> {
+    match std::env::var("FEDERATION_TRUST_ROOT") {
+        Err(_) => Ok(None),
+        Ok(hex) => IssuerRootPublicKey::from_hex(hex.trim())
+            .map(Some)
+            .map_err(|e| RegistryError(format!("invalid FEDERATION_TRUST_ROOT: {e}"))),
+    }
 }
 
 /// Build etcd connection TLS options from the environment, or `None` for a
@@ -103,6 +130,15 @@ fn community_key_of(demos: u64) -> String {
 fn home_binding_of(demos: u64) -> String {
     format!("{PREFIX}/community/{demos}/binding")
 }
+fn issuer_cert_of(node: NodeId) -> String {
+    format!("{PREFIX}/issuers/{}/cert", node.0)
+}
+fn addr_of(node: NodeId) -> String {
+    format!("{PREFIX}/nodes/{}/addr", node.0)
+}
+fn handle_of(handle: &str) -> String {
+    format!("{PREFIX}/handles/{handle}")
+}
 
 /// An etcd-backed control plane bound to one node's lease.
 pub struct EtcdRegistry {
@@ -114,6 +150,9 @@ pub struct EtcdRegistry {
     /// background task keeps it alive.
     lease_id: i64,
     lease_ttl: i64,
+    /// The federation trust root (from `FEDERATION_TRUST_ROOT`), or `None` to trust
+    /// every node's accounts. Gates global (user-account) events in `authorize`.
+    trust_root: Option<IssuerRootPublicKey>,
 }
 
 impl EtcdRegistry {
@@ -130,6 +169,17 @@ impl EtcdRegistry {
         // The control plane is the ownership trust anchor: without TLS anyone who
         // can reach etcd can forge holder/epoch/key writes and seize any community.
         let opts = etcd_tls_options()?;
+        // Load the trusted-issuer anchor now so a misconfiguration fails fast, and
+        // warn loudly if it is absent — an unset root silently trusts every node's
+        // accounts, which is exactly what this feature exists to prevent.
+        let trust_root = issuer_root_from_env()?;
+        if trust_root.is_none() {
+            eprintln!(
+                "WARNING: FEDERATION_TRUST_ROOT is not set — this node trusts account \
+                 creation from ANY federation node. Set it to the federation root public \
+                 key (hex) to restrict accounts to trusted issuers."
+            );
+        }
         let mut client = Client::connect(endpoints, opts).await.map_err(err)?;
         let lease = client.lease_grant(ttl_secs, None).await.map_err(err)?;
         let lease_id = lease.id();
@@ -153,6 +203,7 @@ impl EtcdRegistry {
             node,
             lease_id,
             lease_ttl: ttl_secs,
+            trust_root,
         })
     }
 
@@ -441,6 +492,157 @@ impl OwnershipRegistry for EtcdRegistry {
         }
     }
 
+    async fn is_trusted_issuer(&self, node: NodeId) -> Result<bool, RegistryError> {
+        // No trust root configured → trust every node's accounts (legacy). `connect`
+        // has already warned that this is the case.
+        let Some(root) = self.trust_root.as_ref() else {
+            return Ok(true);
+        };
+        // A stored cert is honoured only if it verifies against the configured root
+        // AND names this node — a poisoned/foreign cert written by a party with etcd
+        // access confers no trust.
+        Ok(match self.issuer_cert(node).await? {
+            Some(cert) => cert.verify(root).is_ok() && cert.certifies(node.0),
+            None => false,
+        })
+    }
+
+    async fn set_issuer_cert(&self, cert: &IssuerCert) -> Result<(), RegistryError> {
+        // Verify against the configured root BEFORE storing, so an unverifiable cert
+        // can never grant trust later (mirrors `set_home_binding`). Without a root
+        // there is nothing to verify against, so refuse rather than store blind.
+        let root = self.trust_root.as_ref().ok_or_else(|| {
+            RegistryError(
+                "cannot store an issuer cert without FEDERATION_TRUST_ROOT configured".into(),
+            )
+        })?;
+        cert.verify(root)
+            .map_err(|e| RegistryError(format!("issuer cert does not verify against the root: {e}")))?;
+        // Keep the highest-epoch cert (a key rotation bumps it); refuse a downgrade.
+        let key = issuer_cert_of(NodeId(cert.node));
+        if let Some((json, _)) = self.get_str(&key).await? {
+            if let Ok(existing) = serde_json::from_str::<IssuerCert>(&json) {
+                if cert.epoch < existing.epoch {
+                    return Err(RegistryError(
+                        "refusing to install a lower-epoch issuer cert".into(),
+                    ));
+                }
+            }
+        }
+        let json = serde_json::to_string(cert).map_err(err)?;
+        let mut client = self.client.clone();
+        client.put(key, json, None).await.map_err(err)?;
+        Ok(())
+    }
+
+    async fn issuer_cert(&self, node: NodeId) -> Result<Option<IssuerCert>, RegistryError> {
+        match self.get_str(&issuer_cert_of(node)).await? {
+            None => Ok(None),
+            Some((json, _)) => serde_json::from_str(&json).map(Some).map_err(err),
+        }
+    }
+
+    async fn publish_addr(&self, node: NodeId, url: &str, sig: &str) -> Result<(), RegistryError> {
+        // Leased, like the load key: a node's address is only discoverable while it
+        // is live, so a peer never forwards to a node that has gone away. Stored with
+        // the node's signature over it so `node_addr` can reject a poisoned address.
+        let value = serde_json::to_string(&AddrWire {
+            url: url.to_string(),
+            sig: sig.to_string(),
+        })
+        .map_err(err)?;
+        let mut client = self.client.clone();
+        client
+            .put(
+                addr_of(node),
+                value,
+                Some(PutOptions::new().with_lease(self.lease_id)),
+            )
+            .await
+            .map_err(err)?;
+        Ok(())
+    }
+
+    async fn reserve_handle(&self, handle: &str, node: NodeId) -> Result<bool, RegistryError> {
+        let key = handle_of(handle);
+        // Persistent (no lease): a handle stays reserved for the life of the account,
+        // across the issuer restarting. NON-idempotent — a handle that already exists
+        // (even one we hold) returns false, so only the FRESH reserver may proceed and
+        // release-on-failure can't strand a live account's handle under concurrency.
+        if self.get_str(&key).await?.is_some() {
+            return Ok(false);
+        }
+        // Create only if still absent, so two issuers racing on the same handle can't
+        // both win — exactly one CAS succeeds.
+        let mut client = self.client.clone();
+        let txn = Txn::new()
+            .when(vec![Compare::create_revision(
+                key.as_bytes(),
+                CompareOp::Equal,
+                0,
+            )])
+            .and_then(vec![TxnOp::put(key.as_bytes(), node.0.to_string(), None)]);
+        Ok(client.txn(txn).await.map_err(err)?.succeeded())
+    }
+
+    async fn release_handle(&self, handle: &str, node: NodeId) -> Result<(), RegistryError> {
+        let key = handle_of(handle);
+        let mut client = self.client.clone();
+        // Delete only if we still hold it (guard on the value being our node id).
+        let txn = Txn::new()
+            .when(vec![Compare::value(
+                key.as_bytes(),
+                CompareOp::Equal,
+                node.0.to_string(),
+            )])
+            .and_then(vec![TxnOp::delete(key.as_bytes(), None)]);
+        client.txn(txn).await.map_err(err)?;
+        Ok(())
+    }
+
+    async fn reserved_handles(&self, node: NodeId) -> Result<Vec<String>, RegistryError> {
+        let mut client = self.client.clone();
+        let resp = client
+            .get(
+                format!("{PREFIX}/handles/"),
+                Some(GetOptions::new().with_prefix()),
+            )
+            .await
+            .map_err(err)?;
+        let prefix = format!("{PREFIX}/handles/");
+        let mut out = Vec::new();
+        for kv in resp.kvs() {
+            let owner = kv.value_str().map_err(err)?;
+            if owner != node.0.to_string() {
+                continue;
+            }
+            let key = kv.key_str().map_err(err)?;
+            if let Some(handle) = key.strip_prefix(&prefix) {
+                out.push(handle.to_string());
+            }
+        }
+        Ok(out)
+    }
+
+    async fn node_addr(&self, node: NodeId) -> Result<Option<String>, RegistryError> {
+        let Some((json, _)) = self.get_str(&addr_of(node)).await? else {
+            return Ok(None);
+        };
+        let Ok(wire) = serde_json::from_str::<AddrWire>(&json) else {
+            return Ok(None);
+        };
+        // Only hand out an address the node itself signed, verified against its
+        // published key — so a control-plane writer can't redirect forwarded creds.
+        let Some(key) = self.public_key(node).await? else {
+            return Ok(None);
+        };
+        let challenge = federation::node_addr_challenge(node.0, &wire.url);
+        Ok(key
+            .verify_hex(challenge.as_bytes(), &wire.sig)
+            .ok()
+            .map(|_| wire.url))
+    }
+
     async fn publish_key(&self, node: NodeId, public_hex: &str) -> Result<(), RegistryError> {
         // Persistent (no lease): peers must be able to verify a node's past events
         // even while it is down.
@@ -542,6 +744,13 @@ impl OwnershipRegistry for EtcdRegistry {
 struct LoadWire {
     hosted_communities: u32,
     requests_per_sec: f64,
+}
+
+/// A node's published address plus the node's own signature over it.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AddrWire {
+    url: String,
+    sig: String,
 }
 impl From<NodeLoad> for LoadWire {
     fn from(l: NodeLoad) -> Self {

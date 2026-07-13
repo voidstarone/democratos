@@ -5,6 +5,11 @@ pub struct FederationArgs {
     pub node_id: u16,
     /// Node-only address for the change-feed server (firewall to the node network).
     pub federation_addr: String,
+    /// This node's externally-reachable base URL for its federation endpoints,
+    /// published to the control plane so peers can discover it (e.g. to forward
+    /// account minting to it when it is a trusted issuer). `None` → not advertised;
+    /// a trusted issuer must set it to be discoverable.
+    pub advertise_url: Option<String>,
     /// etcd endpoints; empty → in-process registry (single-node / dev).
     pub etcd_endpoints: Vec<String>,
     /// Shared node-to-node bearer token (`None` = open; only for trusted networks).

@@ -11,12 +11,15 @@ use crate::handlers::login_form::LoginForm;
 use crate::handlers::redirect_with_cookie::redirect_with_cookie;
 use crate::handlers::render_error::render_error;
 use crate::handlers::resolve_lang::resolve_lang;
+use crate::handlers::safe_next::safe_next;
 use crate::handlers::uid_cookie::uid_cookie;
 use crate::AppState;
 
-/// Verify an email + password and, on success, start a session. A failure re-
-/// renders as the opaque "invalid email or password" so account existence never
-/// leaks.
+/// Verify a handle + password and, on success, start a session. A failure re-renders
+/// as the opaque "invalid email or password" so account existence never leaks.
+/// Verification runs through the [`AccountAuthenticator`](app::AccountAuthenticator)
+/// gateway: locally when this node holds the account's credentials, otherwise
+/// forwarded to the account's home issuer.
 pub async fn create_session(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -30,15 +33,15 @@ pub async fn create_session(
         return render_error(lang, None, "session expired — please try again".to_string());
     }
     match state
-        .services
-        .authenticate(&form.email, &form.password)
+        .authenticator
+        .authenticate(&form.handle, &form.password)
         .await
     {
-        Ok(user) => redirect_with_cookie(
-            "/",
+        Ok(id) => redirect_with_cookie(
+            safe_next(&form.next).as_deref().unwrap_or("/"),
             uid_cookie(
                 &state.session,
-                user.id.0,
+                id.0,
                 state.services.clock.now().0,
                 state.secure_cookies,
             ),

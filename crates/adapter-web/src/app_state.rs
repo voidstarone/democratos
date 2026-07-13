@@ -1,8 +1,10 @@
 //! Shared handler state.
 
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use app::{GovernanceWrites, Services, SessionSigner};
+use app::{AccountAuthenticator, AccountMinter, GovernanceWrites, Services, SessionSigner};
+use ipnet::IpNet;
 
 /// Shared handler state: the application services (reads + non-federated
 /// writes), the governance-write gateway (votes, which may forward to a
@@ -13,6 +15,14 @@ pub struct AppState {
     /// Where governance ballots go. Single-box this runs locally; federated it
     /// routes to the owning node. See [`app::GovernanceWrites`].
     pub writes: Arc<dyn GovernanceWrites>,
+    /// Where account sign-ups go. Single-box (or on a trusted issuer) this mints
+    /// locally; on a non-issuer federated node it forwards to a trusted issuer that
+    /// mints the account in its own namespace. See [`app::AccountMinter`].
+    pub minter: Arc<dyn AccountMinter>,
+    /// Where sign-ins are verified. Locally when this node holds the account's
+    /// credentials; otherwise forwarded to the account's home issuer. Login is by
+    /// handle (emails don't replicate). See [`app::AccountAuthenticator`].
+    pub authenticator: Arc<dyn AccountAuthenticator>,
     /// Signs and verifies the session cookie, so the acting-user id a browser
     /// presents is one the server actually authenticated — not a bare, forgeable
     /// integer. See [`app::SessionSigner`].
@@ -29,4 +39,19 @@ pub struct AppState {
     /// Set it when a dev-enabled node is reachable beyond your own machine, so only
     /// a caller holding the secret can unlock the account switcher. See [`crate::dev`].
     pub dev_unlock_secret: Option<Arc<str>>,
+    /// Whether new sign-ups currently require an invite. Held as an atomic so the
+    /// operator can flip it live from the admin console; seeded at boot from the
+    /// persisted setting (falling back to the `--invite-only` flag) and written
+    /// back to storage on every toggle. Read on the hot path (`/register`) without
+    /// an await.
+    pub invite_only: Arc<AtomicBool>,
+    /// The CIDR allowlist for the admin review queue: a request whose connection
+    /// peer is outside every listed network (and not loopback) gets a `404`.
+    /// Empty means "loopback only".
+    pub admin_subnets: Arc<[IpNet]>,
+    /// Shared secret the admin review queue requires as `?key=` on top of the
+    /// subnet check. `None` disables the queue entirely (it always `404`s) — so an
+    /// operator must set a secret to use it, never reachable by subnet membership
+    /// alone.
+    pub admin_secret: Option<Arc<str>>,
 }

@@ -26,6 +26,18 @@ pub async fn post_page(
 ) -> Response {
     let lang = resolve_lang(&headers);
     let user = current_user(&state, &headers).await;
+    // Content flagged pending sensitive-content review is hidden from everyone but
+    // opted-in reviewers (who act on it through the /review console).
+    if let Ok(Some(post)) = state.services.posts.get(PostId(id)).await {
+        let is_reviewer = user.as_ref().map(|u| u.is_sensitive_reviewer).unwrap_or(false);
+        if post.pending_review && !is_reviewer {
+            return render_error(
+                lang,
+                user.map(|u| u.handle),
+                lang.strings().pending_review_notice.to_string(),
+            );
+        }
+    }
     match build_post_view(&state, lang, PostId(id), user.as_ref()).await {
         Ok(view) => render(view),
         Err(e) => render_error(lang, user.map(|u| u.handle), e.to_string()),

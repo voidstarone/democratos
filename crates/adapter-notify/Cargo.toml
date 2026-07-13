@@ -1,0 +1,25 @@
+[package]
+name = "adapter-notify"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+# Outbound notification adapters implementing `app::Notifier`: a real SMTP sender
+# for production and a log sink for dev. The composition root picks one.
+[dependencies]
+app = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+# SMTP email. rustls TLS (not native-tls/OpenSSL) to match the crypto stack the
+# rest of the workspace already links and to keep the Raspberry-Pi release build
+# free of a C OpenSSL dependency.
+lettre = { version = "0.11", default-features = false, features = [
+    "smtp-transport",
+    "tokio1",
+    "tokio1-rustls-tls",
+    "builder",
+    "hostname",
+] }
+
+[dev-dependencies]
+tokio = { workspace = true }

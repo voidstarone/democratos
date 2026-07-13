@@ -1,0 +1,78 @@
+//! A user's public profile page: their posts or comments, tab-selected.
+
+use axum::{
+    extract::{Path, Query, State},
+    http::HeaderMap,
+    response::Response,
+};
+
+use crate::handlers::current_user::current_user;
+use crate::handlers::profile_query::ProfileQuery;
+use crate::handlers::render::render;
+use crate::handlers::render_error::render_error;
+use crate::handlers::resolve_lang::resolve_lang;
+use crate::views::profile_comment_item::ProfileCommentItem;
+use crate::views::profile_post_item::ProfilePostItem;
+use crate::views::profile_view::ProfileView;
+use crate::AppState;
+
+/// `GET /u/:handle` — a user's profile. Shows their Posts by default, or their
+/// Comments with `?tab=comments`. Only the selected tab's data is fetched; the
+/// tabs are ordinary links, so it works with JavaScript disabled.
+pub async fn profile_page(
+    State(state): State<AppState>,
+    Path(handle): Path<String>,
+    Query(query): Query<ProfileQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let lang = resolve_lang(&headers);
+    let viewer = current_user(&state, &headers).await.map(|u| u.handle);
+
+    let user = match state.services.user_by_handle(&handle).await {
+        Ok(Some(u)) => u,
+        Ok(None) => return render_error(lang, viewer, "no such user".to_string()),
+        Err(e) => return render_error(lang, viewer, e.to_string()),
+    };
+
+    let show_comments = query.tab.as_deref() == Some("comments");
+    let mut posts = Vec::new();
+    let mut comments = Vec::new();
+
+    if show_comments {
+        match state.services.comments_by_author(user.id).await {
+            Ok(cs) => {
+                comments = cs
+                    .into_iter()
+                    .map(|c| ProfileCommentItem {
+                        post_id: c.post_id.0,
+                        body: c.body,
+                    })
+                    .collect()
+            }
+            Err(e) => return render_error(lang, viewer, e.to_string()),
+        }
+    } else {
+        match state.services.posts_by_author(user.id).await {
+            Ok(ps) => {
+                posts = ps
+                    .into_iter()
+                    .map(|p| ProfilePostItem {
+                        id: p.id.0,
+                        title: p.title,
+                    })
+                    .collect()
+            }
+            Err(e) => return render_error(lang, viewer, e.to_string()),
+        }
+    }
+
+    render(ProfileView {
+        t: lang.strings(),
+        lang: lang.code(),
+        current_user: viewer,
+        handle: user.handle,
+        tab: if show_comments { "comments" } else { "posts" }.to_string(),
+        posts,
+        comments,
+    })
+}

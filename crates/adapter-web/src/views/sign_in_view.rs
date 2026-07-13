@@ -14,4 +14,8 @@ pub struct SignInView {
     /// against the `csrf` cookie on submit (double-submit defence against login
     /// CSRF).
     pub csrf_token: String,
+    /// Validated same-site path to return to after auth (e.g. the `/found/:id`
+    /// the visitor came from), or empty for the default home redirect. Carried
+    /// through as a hidden field and preserved across the sign-in/register link.
+    pub next: String,
 }

@@ -33,6 +33,13 @@ pub struct Post {
     /// Flagging blurs/age-gates the post; it never removes it — see [`crate::nsfw`].
     #[serde(default)]
     pub is_nsfw: bool,
+    /// Flagged sensitive by a user and hidden from normal feeds while a
+    /// platform-wide review case gathers reviewer classifications
+    /// ([`crate::sensitive`]). Distinct from [`removed`](Self::removed): a review
+    /// that clears the flag sets this back to `false`; one that upholds it sets
+    /// `removed`.
+    #[serde(default)]
+    pub pending_review: bool,
 }
 
 impl Post {
@@ -58,6 +65,7 @@ impl Post {
             created_at,
             removed: false,
             is_nsfw: false,
+            pending_review: false,
         }
     }
 
@@ -112,6 +120,8 @@ struct PostWire {
     removed: bool,
     #[serde(default)]
     is_nsfw: bool,
+    #[serde(default)]
+    pending_review: bool,
     /// Legacy `PostKind` field, present only in pre-`media` datasets.
     #[serde(default)]
     kind: Option<LegacyKind>,
@@ -146,6 +156,7 @@ impl From<PostWire> for Post {
             created_at: w.created_at,
             removed: w.removed,
             is_nsfw: w.is_nsfw,
+            pending_review: w.pending_review,
         }
     }
 }

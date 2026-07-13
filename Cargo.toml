@@ -21,6 +21,7 @@ members = [
     "crates/adapter-media-local",
     "crates/adapter-media-s3",
     "crates/adapter-media-safety",
+    "crates/adapter-notify",
     "crates/loadgen",
     "crates/adapter-web",
     "crates/adapter-cli",
@@ -49,6 +50,7 @@ adapter-moderation-local = { path = "crates/adapter-moderation-local" }
 adapter-media-local = { path = "crates/adapter-media-local" }
 adapter-media-s3 = { path = "crates/adapter-media-s3" }
 adapter-media-safety = { path = "crates/adapter-media-safety" }
+adapter-notify = { path = "crates/adapter-notify" }
 adapter-web = { path = "crates/adapter-web" }
 adapter-cli = { path = "crates/adapter-cli" }
 # third-party
@@ -64,6 +66,8 @@ askama = "0.12"
 askama_axum = "0.4"
 clap = { version = "4", features = ["derive", "env"] }
 tower-http = { version = "0.6", features = ["fs"] }
+# CIDR parsing + membership tests for the admin review-queue subnet allowlist.
+ipnet = "2"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 

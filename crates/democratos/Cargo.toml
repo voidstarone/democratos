@@ -26,7 +26,10 @@ adapter-recommend-disk = { workspace = true }
 adapter-moderation-local = { workspace = true }
 adapter-media-local = { workspace = true }
 adapter-media-s3 = { workspace = true }
+adapter-media-safety = { workspace = true }
+adapter-notify = { workspace = true }
 clap = { workspace = true }
+ipnet = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }

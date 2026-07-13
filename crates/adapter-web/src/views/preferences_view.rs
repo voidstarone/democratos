@@ -12,6 +12,9 @@ pub struct PreferencesView {
     /// The saved delivery preference: `"auto"`, `"pages"`, or `"lazy"` — drives
     /// which radio is checked.
     pub feed_paging: &'static str,
+    /// Whether the account has opted in to sensitive-content review — drives the
+    /// checkbox state.
+    pub is_sensitive_reviewer: bool,
     /// Set after a successful save so the page can confirm it.
     pub saved: bool,
 }

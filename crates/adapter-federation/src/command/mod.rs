@@ -18,18 +18,24 @@
 //! applied locally and reconciled later. For a governance system, integrity wins
 //! over availability: a vote that can't be recorded authoritatively is refused.
 
+pub mod auth_rate_limiter;
 #[allow(clippy::module_inception)]
 pub mod command;
 pub mod command_outcome;
 pub mod command_transport;
 pub mod demos_of;
 pub mod execute;
+pub mod federated_authenticator;
+pub mod federated_minter;
 pub mod federated_writes;
 pub mod forward_error;
 pub mod http_command_transport;
 pub mod in_memory_nonce_log;
+pub mod in_memory_rate_limit_store;
 pub mod max_command_skew_secs;
+pub mod mint_rate_limiter;
 pub mod nonce_log;
+pub mod rate_limit_store;
 pub mod replay_guard;
 pub mod signed_command;
 pub mod sync_vote_executor;

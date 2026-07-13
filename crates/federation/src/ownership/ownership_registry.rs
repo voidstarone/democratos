@@ -98,4 +98,106 @@ pub trait OwnershipRegistry: Send + Sync {
     ) -> Result<Option<crate::HomeBinding>, RegistryError> {
         Ok(None)
     }
+
+    // --- federation-root-signed trusted issuers (global-account anchor) --------
+    //
+    // User accounts are global rows with no per-community owner. These gate which
+    // nodes may mint accounts that replicate fleet-wide. They default permissively
+    // (every node trusted) so a registry with no configured trust root behaves
+    // exactly as before — enforcement turns on only once a root is configured and
+    // certs are published. See [`crate::issuer`].
+
+    /// Whether `node` is a federation-trusted account issuer — i.e. holds a valid
+    /// root-signed [`IssuerCert`](crate::IssuerCert). Consulted by
+    /// [`authorize`](crate::authorize) on a global (user-account) event. Defaults
+    /// to `true`: a registry with no trust root configured trusts every node, as
+    /// before. A registry configured with a root returns `true` only for a node
+    /// whose stored cert verifies against it.
+    async fn is_trusted_issuer(&self, _node: NodeId) -> Result<bool, RegistryError> {
+        Ok(true)
+    }
+
+    /// Store a node's trusted-issuer certificate. The caller must have verified it
+    /// against the federation root key; implementations keep the highest-epoch cert.
+    async fn set_issuer_cert(&self, _cert: &crate::IssuerCert) -> Result<(), RegistryError> {
+        Ok(())
+    }
+
+    /// A node's current (highest-epoch) trusted-issuer certificate, if any.
+    async fn issuer_cert(&self, _node: NodeId) -> Result<Option<crate::IssuerCert>, RegistryError> {
+        Ok(None)
+    }
+
+    /// Publish this node's base URL for the federation command endpoint, so a peer
+    /// that needs to forward account minting/login can discover where to reach it.
+    /// `sig` is the node's own Ed25519 signature (hex) over
+    /// [`node_addr_challenge`](crate::node_addr_challenge)`(node, url)`; storing it
+    /// lets [`node_addr`](Self::node_addr) reject an address the node did not sign,
+    /// so a party with control-plane write access cannot redirect forwarded
+    /// credentials. Defaults to a no-op for registries that carry no addresses.
+    async fn publish_addr(
+        &self,
+        _node: NodeId,
+        _url: &str,
+        _sig: &str,
+    ) -> Result<(), RegistryError> {
+        Ok(())
+    }
+
+    /// A node's published command base URL — returned **only if** its stored
+    /// signature verifies against the node's published key. An unsigned, badly-signed,
+    /// or key-less address returns `None` (fail closed): forwarded credentials never
+    /// go to an address the target node did not vouch for.
+    async fn node_addr(&self, _node: NodeId) -> Result<Option<String>, RegistryError> {
+        Ok(None)
+    }
+
+    /// Atomically reserve `handle` for `node` in the fleet-wide handle namespace, so
+    /// two trusted issuers can't independently mint the same handle (which — because
+    /// login resolves by handle — would let a colliding account impersonate another).
+    /// Returns `true` **only for the request that freshly reserves it**; a handle that
+    /// already exists (even one this node holds) returns `false`. This non-idempotence
+    /// is deliberate: it makes [`release_handle`](Self::release_handle)-on-failure safe
+    /// under concurrency (a duplicate mint gets `false` and never releases the winner's
+    /// handle). Defaults to `true`: with no coordinating control plane there is a
+    /// single issuer, so the local uniqueness check suffices (single-node/legacy).
+    async fn reserve_handle(&self, _handle: &str, _node: NodeId) -> Result<bool, RegistryError> {
+        Ok(true)
+    }
+
+    /// Release a handle reservation held by `node` (used to undo a reservation when
+    /// the subsequent account creation fails, so a rejected sign-up doesn't strand the
+    /// handle). A no-op if `node` does not hold it. Defaults to a no-op.
+    async fn release_handle(&self, _handle: &str, _node: NodeId) -> Result<(), RegistryError> {
+        Ok(())
+    }
+
+    /// All handles currently reserved by `node`. Used at startup to reconcile away
+    /// **orphans** — a handle reserved when a crash interrupted the reserve→create
+    /// window, so it has no account. Defaults to an empty list.
+    async fn reserved_handles(&self, _node: NodeId) -> Result<Vec<String>, RegistryError> {
+        Ok(Vec::new())
+    }
+
+    /// Discover the trusted account issuers a node can mint through: the live nodes
+    /// that hold a valid issuer cert **and** have published a reachable address. The
+    /// default composes the primitives above, so an adapter only implements storage
+    /// ([`publish_addr`](Self::publish_addr)/[`node_addr`](Self::node_addr)) — never
+    /// this policy. Selection among the result is [`crate::choose_issuer`].
+    async fn trusted_issuers(&self) -> Result<Vec<crate::IssuerEndpoint>, RegistryError> {
+        let mut out = Vec::new();
+        for status in self.live_nodes().await? {
+            if !self.is_trusted_issuer(status.node).await? {
+                continue;
+            }
+            if let Some(addr) = self.node_addr(status.node).await? {
+                out.push(crate::IssuerEndpoint {
+                    node: status.node,
+                    addr,
+                    load: status.load,
+                });
+            }
+        }
+        Ok(out)
+    }
 }

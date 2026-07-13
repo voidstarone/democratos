@@ -3,6 +3,9 @@
 use clap::Parser;
 
 use crate::media_kind::MediaKind;
+use crate::notifier_kind::NotifierKind;
+use crate::sanitizer_kind::SanitizerKind;
+use crate::scan_policy::ScanPolicy;
 use crate::store_kind::StoreKind;
 use crate::top::Top;
 
@@ -126,6 +129,67 @@ pub(crate) struct Cli {
     #[arg(long, global = true, env = "DEMOCRATOS_S3_PUBLIC_BASE")]
     pub(crate) s3_public_base: Option<String>,
 
+    /// How uploaded media is made safe before it is stored: `reencode` decodes
+    /// and re-encodes images (stripping metadata, defusing decompression bombs and
+    /// polyglots) and structurally validates video; `passthrough` only type-checks
+    /// (lighter CPU for a tiny box, weaker guarantee). Applies to every media
+    /// backend and to the in-RAM `memory` store.
+    #[arg(
+        long,
+        value_enum,
+        default_value = "reencode",
+        global = true,
+        env = "DEMOCRATOS_MEDIA_SANITIZER"
+    )]
+    pub(crate) media_sanitizer: SanitizerKind,
+
+    /// Scan uploaded media for known illegal content (CSAM) before storing it.
+    /// **Off by default**, because effective matching needs a curated known-bad
+    /// hash corpus from a lawful source (NCMEC / PhotoDNA), which not every
+    /// operator can obtain — without one the scan can only clear everything, a
+    /// false sense of protection. Turn it on *together with* `--csam-hash-file`
+    /// (or after wiring an external classifier) once you have a real source.
+    /// Malicious-media sanitization runs regardless of this flag.
+    #[arg(
+        long,
+        default_value_t = false,
+        global = true,
+        env = "DEMOCRATOS_CSAM_SCAN"
+    )]
+    pub(crate) csam_scan: bool,
+
+    /// Path to the operator-curated known-bad hash corpus the CSAM scan matches
+    /// against (lines of `sha256:<hex>` / `dhash:<hex>`; see docs/media-safety.md).
+    /// Derived from a lawful source (e.g. NCMEC / PhotoDNA). Contains only opaque
+    /// hashes, never imagery.
+    #[arg(long, global = true, env = "DEMOCRATOS_CSAM_HASH_FILE")]
+    pub(crate) csam_hash_file: Option<String>,
+
+    /// What to do when the CSAM scanner cannot render a verdict (backend down or
+    /// unreachable): `fail-closed` refuses the upload (default), `quarantine`
+    /// refuses and preserves a copy for review, `allow` serves it unscanned. A
+    /// positive match is always blocked and preserved, whatever this is.
+    #[arg(
+        long,
+        value_enum,
+        default_value = "fail-closed",
+        global = true,
+        env = "DEMOCRATOS_MEDIA_SCAN_POLICY"
+    )]
+    pub(crate) media_scan_policy: ScanPolicy,
+
+    /// Directory where blocked or held media is preserved (a CSAM match, or an
+    /// unscannable upload under the `quarantine` policy). Kept out of the public
+    /// store; must be reachable only by trusted operators. Preserved, never
+    /// deleted, so it can back a NCMEC report (18 U.S.C. §2258A).
+    #[arg(
+        long,
+        default_value = "quarantine",
+        global = true,
+        env = "DEMOCRATOS_QUARANTINE_DIR"
+    )]
+    pub(crate) quarantine_dir: String,
+
     /// Where the recommender writes its similarity index (`file` store only).
     /// Defaults to `<data>.recindex`. It is **derived, disposable** data —
     /// rebuilt at boot — so point it at a tmpfs/RAM path to spare flash storage.
@@ -144,6 +208,93 @@ pub(crate) struct Cli {
     /// node acts for its key-less members. Off by default for single-box rollout.
     #[arg(long, global = true, env = "DEMOCRATOS_REQUIRE_SIGNATURES")]
     pub(crate) require_signatures: bool,
+
+    /// Start with invitation-only access on: open registration is closed and
+    /// accounts are created only through an approved invite. This is the *initial*
+    /// value only — it seeds the toggle the first time; after that the persisted
+    /// setting (flipped live from the review queue) wins. Off by default.
+    #[arg(long, global = true, env = "DEMOCRATOS_INVITE_ONLY")]
+    pub(crate) invite_only: bool,
+
+    /// The public origin this node is reached at (`scheme://host[:port]`, no
+    /// trailing slash), used to build the absolute invite-accept links that go in
+    /// approval emails. Set it to the address invitees actually use (behind a
+    /// reverse proxy this is NOT the bind address).
+    #[arg(
+        long,
+        default_value = "http://localhost:8080",
+        global = true,
+        env = "DEMOCRATOS_PUBLIC_BASE_URL"
+    )]
+    pub(crate) public_base_url: String,
+
+    /// How many days an issued invite link stays valid before it must be
+    /// re-approved.
+    #[arg(
+        long,
+        default_value_t = 7,
+        global = true,
+        env = "DEMOCRATOS_INVITE_TOKEN_TTL_DAYS"
+    )]
+    pub(crate) invite_token_ttl_days: i64,
+
+    /// Comma-separated CIDR allowlist for the admin invite review queue, e.g.
+    /// `192.168.1.0/24,10.0.0.0/8`. A request from outside every listed network
+    /// (and not loopback) gets a 404. Loopback is always allowed.
+    #[arg(long, global = true, env = "DEMOCRATOS_ADMIN_SUBNET")]
+    pub(crate) admin_subnet: Option<String>,
+
+    /// Shared secret the admin review queue requires as `?key=` on top of the
+    /// subnet check. With no secret set the queue is disabled entirely (always
+    /// 404) — so it is never reachable by subnet membership alone.
+    #[arg(long, global = true, env = "DEMOCRATOS_ADMIN_SECRET")]
+    pub(crate) admin_secret: Option<String>,
+
+    /// How invite-approval emails are delivered: `log` (print the link — dev / no
+    /// SMTP) or `smtp` (send real mail; requires the `--smtp-*` settings).
+    #[arg(
+        long,
+        value_enum,
+        default_value = "log",
+        global = true,
+        env = "DEMOCRATOS_NOTIFIER"
+    )]
+    pub(crate) notifier: NotifierKind,
+
+    /// SMTP server hostname (for `--notifier smtp`).
+    #[arg(long, global = true, env = "DEMOCRATOS_SMTP_HOST")]
+    pub(crate) smtp_host: Option<String>,
+
+    /// SMTP server port. 465 for implicit TLS, 587 for STARTTLS.
+    #[arg(long, default_value_t = 465, global = true, env = "DEMOCRATOS_SMTP_PORT")]
+    pub(crate) smtp_port: u16,
+
+    /// SMTP auth username.
+    #[arg(long, global = true, env = "DEMOCRATOS_SMTP_USERNAME")]
+    pub(crate) smtp_username: Option<String>,
+
+    /// SMTP auth password.
+    #[arg(long, global = true, env = "DEMOCRATOS_SMTP_PASSWORD")]
+    pub(crate) smtp_password: Option<String>,
+
+    /// The `From:` address for approval emails, e.g.
+    /// `Democratos <no-reply@example.org>`.
+    #[arg(long, global = true, env = "DEMOCRATOS_SMTP_FROM")]
+    pub(crate) smtp_from: Option<String>,
+
+    /// Use STARTTLS (port 587) instead of implicit TLS (port 465). Either way the
+    /// SMTP session is encrypted.
+    #[arg(long, default_value_t = false, global = true, env = "DEMOCRATOS_SMTP_STARTTLS")]
+    pub(crate) smtp_starttls: bool,
+
+    /// Subject line for the invite-approval email.
+    #[arg(
+        long,
+        default_value = "Your Democratos invite",
+        global = true,
+        env = "DEMOCRATOS_SMTP_SUBJECT"
+    )]
+    pub(crate) smtp_subject: String,
 
     #[command(subcommand)]
     pub(crate) command: Top,

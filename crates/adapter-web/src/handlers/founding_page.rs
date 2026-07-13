@@ -38,8 +38,10 @@ pub async fn founding_page(
         slug: p.slug.clone(),
         name: p.name.clone(),
         founder: handle_of(&state, p.founder).await,
-        signed: p.sign_offs.len(),
-        required: domain::SIGN_OFFS_REQUIRED,
+        // The founder counts as the first sign-up, so progress shows out of
+        // SIGN_OFFS_REQUIRED + 1 (both derived in the domain — never hardcoded).
+        signed: p.signed_with_founder(),
+        required: p.founding_quorum(),
         is_founder,
         viewer_signed,
         can_sign: viewer_id.is_some() && !is_founder && !viewer_signed,

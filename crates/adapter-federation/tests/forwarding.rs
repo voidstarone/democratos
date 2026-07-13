@@ -43,6 +43,9 @@ fn mk_services(store: Arc<PostgresStore>) -> Services {
         posts: store.clone(),
         comments: store.clone(),
         reports: store.clone(),
+        invites: store.clone(),
+        settings: store.clone(),
+        sensitive_cases: store.clone(),
         trials: store.clone(),
         post_votes: store.clone(),
         comment_votes: store.clone(),
@@ -52,6 +55,9 @@ fn mk_services(store: Arc<PostgresStore>) -> Services {
         age_verifier: Arc::new(AutoApproveAgeVerifier),
         requires_age_verification: false,
         require_signatures: false,
+        notifier: Arc::new(adapter_notify::LogNotifier::new()),
+        public_base_url: "http://localhost".to_string(),
+        invite_token_ttl_days: 7,
         clock: Arc::new(FixedClock(1000)),
     }
 }
@@ -126,10 +132,26 @@ async fn votes_route_to_the_owner_and_fail_closed_without_one() {
     // Owner runs a command server.
     let token = Some("t".to_string());
     let state = CommandState {
+        node: NodeId(OWNER),
         services: services.clone(),
         token: token.clone(),
         registry: registry.clone() as Arc<dyn OwnershipRegistry>,
         replay_guard: Arc::new(adapter_federation::command::replay_guard::ReplayGuard::in_memory()),
+        mint_rate_limiter: Arc::new(
+            adapter_federation::command::mint_rate_limiter::MintRateLimiter::new(
+                Arc::new(adapter_federation::InMemoryRateLimitStore::new()),
+                30,
+                3_600,
+            ),
+        ),
+        auth_rate_limiter: Arc::new(
+            adapter_federation::command::auth_rate_limiter::AuthRateLimiter::new(
+                Arc::new(adapter_federation::InMemoryRateLimitStore::new()),
+                10,
+                100,
+                300,
+            ),
+        ),
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

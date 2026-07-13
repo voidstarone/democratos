@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Request an invite · Democratos{% endblock %}
+{% block head %}
+<style>
+  .invite-form { max-width: 420px; }
+  .invite-form label { display:block; font-weight:600; margin:.9rem 0 .3rem; }
+  .invite-form input, .invite-form textarea { width:100%; }
+  .invite-form textarea { min-height:4.5rem; resize:vertical; }
+  .invite-hint { color:var(--muted); font-size:.9rem; margin:.2rem 0 0; }
+  .invite-error { color:var(--bad); font-weight:600; }
+  .invite-done { border:1px solid var(--line); border-left:4px solid var(--ok); border-radius:10px;
+                 padding:1rem 1.1rem; background:var(--surface); }
+</style>
+{% endblock %}
+{% block content %}
+<h1>Request an invite</h1>
+
+{% if submitted %}
+<div class="invite-done">
+  <p><strong>Thanks — you're on the list.</strong></p>
+  <p class="invite-hint">If you're approved, you'll get an email with a one-time link to
+  finish setting up your account. There's nothing else you need to do for now.</p>
+</div>
+{% else %}
+<p class="muted">Democratos is invite-only at the moment. Leave your email and, if you like,
+a short note about why you'd like to join. If you're approved you'll get an email with a
+link to create your account.</p>
+
+{% match error %}
+{% when Some with (msg) %}<p class="invite-error">{{ msg }}</p>
+{% when None %}
+{% endmatch %}
+
+<form method="post" action="/request-invite" class="invite-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label for="email">Email</label>
+  <input id="email" type="email" name="email" required autocomplete="email"
+         placeholder="you@example.com" value="{{ email }}">
+  <label for="note">Note <span class="invite-hint">(optional)</span></label>
+  <textarea id="note" name="note" placeholder="A line about why you'd like to join">{{ note }}</textarea>
+  <p style="margin-top:1rem"><button type="submit">Ask to join</button></p>
+</form>
+{% endif %}
+{% endblock %}

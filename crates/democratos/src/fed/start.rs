@@ -7,12 +7,15 @@ use anyhow::{anyhow, bail, Result};
 
 use adapter_control_etcd::EtcdRegistry;
 use adapter_federation::{
-    serve_federation, spawn_puller, CommandClient, CommandState, FederatedWrites, FeedClient,
-    FeedState, HttpCommandTransport, IngestClient, IngestState, Peer, Replicator, SyncVoteExecutor,
-    WriteRouter,
+    serve_federation, spawn_puller, AuthRateLimiter, CommandClient, CommandState,
+    FederatedAuthenticator, FederatedMinter, FederatedWrites, FeedClient, FeedState,
+    HttpCommandTransport, IngestClient, IngestState, MintRateLimiter, Peer, Replicator,
+    SyncVoteExecutor, WriteRouter,
 };
 use adapter_store_postgres::PostgresStore;
-use app::{GovernanceWrites, Services};
+use app::{
+    AccountAuthenticator, AccountMinter, GovernanceWrites, LocalMinter, Services,
+};
 use domain::NodeId;
 use federation::{InMemoryRegistry, NodeKeypair, OwnershipRegistry};
 
@@ -32,7 +35,11 @@ pub async fn start(
     store: Arc<PostgresStore>,
     services: Services,
     args: FederationArgs,
-) -> Result<Arc<dyn GovernanceWrites>> {
+) -> Result<(
+    Arc<dyn GovernanceWrites>,
+    Arc<dyn AccountMinter>,
+    Arc<dyn AccountAuthenticator>,
+)> {
     let node = NodeId(args.node_id);
 
     // Fail closed before doing any work: an exposed federation port with no token
@@ -109,9 +116,32 @@ pub async fn start(
         .await
         .map_err(|e| anyhow!("publish key: {e}"))?;
 
+    // Advertise this node's reachable URL so peers can discover it — e.g. to forward
+    // account minting here when it is a trusted issuer. A trusted issuer that does
+    // not set this is un-discoverable and so never receives mint requests.
+    if let Some(url) = &args.advertise_url {
+        // Sign the address with THIS node's key so peers only trust an address the
+        // node itself vouched for — a control-plane writer can't redirect forwarded
+        // credentials to a server it controls.
+        let sig = keypair.sign_hex(federation::node_addr_challenge(node.0, url).as_bytes());
+        registry
+            .publish_addr(node, url, &sig)
+            .await
+            .map_err(|e| anyhow!("publish addr: {e}"))?;
+    }
+
     // Claim the communities this node currently hosts, so its feed stamps the
     // correct epoch and peers can authorize its events.
     let hosted = claim_hosted(&*store, registry.as_ref(), node, keypair.as_ref()).await?;
+
+    // Reconcile away any handle reservations this node holds with no backing account
+    // (a crash in the reserve→create window). Only releases orphans, never live ones.
+    crate::fed::reconcile_orphan_handles::reconcile_orphan_handles(
+        &*store,
+        registry.as_ref(),
+        node,
+    )
+    .await;
 
     // --- replicate from peers ---
     let replicator = Arc::new(Replicator::new(store.clone(), registry.clone()));
@@ -165,6 +195,26 @@ pub async fn start(
     .with_sync(Arc::new(sync));
     let writes: Arc<dyn GovernanceWrites> = Arc::new(FederatedWrites::new(router));
 
+    // The account-minting gateway the web sign-up submits to. On a trusted-issuer
+    // node it mints locally; elsewhere it discovers a trusted issuer and forwards.
+    let minter: Arc<dyn AccountMinter> = Arc::new(FederatedMinter::new(
+        node,
+        LocalMinter::new(services.clone()),
+        registry.clone(),
+        keypair.clone(),
+        args.cluster_token.clone(),
+    ));
+
+    // The login gateway the web sign-in submits to. Verifies locally when this node
+    // holds the account's credentials; otherwise forwards to the account's home issuer.
+    let authenticator: Arc<dyn AccountAuthenticator> = Arc::new(FederatedAuthenticator::new(
+        node,
+        services.clone(),
+        registry.clone(),
+        keypair.clone(),
+        args.cluster_token.clone(),
+    ));
+
     // --- serve this node's feed + command + ingest endpoints (node-only) ---
     let feed_state = FeedState {
         store: store.clone(),
@@ -173,6 +223,7 @@ pub async fn start(
         token: args.cluster_token.clone(),
     };
     let command_state = CommandState {
+        node,
         services,
         token: args.cluster_token.clone(),
         registry: registry.clone(),
@@ -183,6 +234,21 @@ pub async fn start(
                 store.clone() as std::sync::Arc<dyn adapter_federation::command::nonce_log::NonceLog>,
             ),
         ),
+        // Cap delegated minting at 30 accounts per node per hour, and delegated
+        // login at 10 attempts per account per 5 minutes — both counted in Postgres
+        // so the cap holds across replicas and restarts (not per-process).
+        mint_rate_limiter: std::sync::Arc::new(MintRateLimiter::new(
+            store.clone() as std::sync::Arc<dyn adapter_federation::RateLimitStore>,
+            30,
+            3_600,
+        )),
+        // 10 guesses/account and 100 total/node per 5 min — brute-force + spraying.
+        auth_rate_limiter: std::sync::Arc::new(AuthRateLimiter::new(
+            store.clone() as std::sync::Arc<dyn adapter_federation::RateLimitStore>,
+            10,
+            100,
+            300,
+        )),
     };
     let ingest_state = IngestState {
         replicator,
@@ -216,5 +282,5 @@ pub async fn start(
         hosted,
         if hosted == 1 { "y" } else { "ies" }
     );
-    Ok(writes)
+    Ok((writes, minter, authenticator))
 }

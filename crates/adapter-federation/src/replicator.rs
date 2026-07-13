@@ -50,11 +50,13 @@ fn is_transient(err: &AuthError) -> bool {
         // replicated / control-plane blip — all resolve on their own; retry.
         AuthError::Unowned | AuthError::UnknownNode | AuthError::Registry(_) => true,
         // Superseded by a rehoming, fenced, a bad signature, a non-home global
-        // write, an unplaceable payload, or a row that doesn't match its domain
-        // type — none of these ever becomes applicable.
+        // write, an account from an untrusted issuer, an unplaceable payload, or a
+        // row that doesn't match its domain type — none of these ever becomes
+        // applicable.
         AuthError::NotOwner
         | AuthError::StaleEpoch
         | AuthError::WrongHome
+        | AuthError::UntrustedIssuer
         | AuthError::ScopeMismatch
         | AuthError::MalformedPayload
         // The signer isn't authorized by the community's founder-signed home
