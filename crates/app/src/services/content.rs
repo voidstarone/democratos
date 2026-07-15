@@ -120,7 +120,9 @@ impl Services {
         self.comment_votes
             .set(comment.id, author, Some(true))
             .await?;
-        self.recompute_popularity(author, post.demos_id).await?;
+        self.metrics_service()
+            .recompute_popularity(author, post.demos_id)
+            .await?;
         self.run_bot_check(author, post.demos_id, now).await?;
         // Ping anyone named in the reply (their opt-in is checked inside).
         self.notification_service()
@@ -157,7 +159,8 @@ impl Services {
             .await?;
         self.post_votes.set(post_id, user, dir).await?;
         // The post author's popularity just changed; refresh their cached score.
-        self.recompute_popularity(post.author, post.demos_id)
+        self.metrics_service()
+            .recompute_popularity(post.author, post.demos_id)
             .await?;
         Ok(self.post_votes.score(post_id).await?)
     }
@@ -193,7 +196,8 @@ impl Services {
             .await?;
         self.comment_votes.set(comment_id, user, dir).await?;
         // The comment author's popularity just changed; refresh their cache.
-        self.recompute_popularity(comment.author, post.demos_id)
+        self.metrics_service()
+            .recompute_popularity(comment.author, post.demos_id)
             .await?;
         Ok(self.comment_votes.score(comment_id).await?)
     }

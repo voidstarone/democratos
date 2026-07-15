@@ -1,17 +1,24 @@
-
-
-use domain::normalize_tags;
-
+//! Facade delegator for search use-cases. The logic now lives in
+//! [`SearchService`](super::search_service::SearchService); this thin method
+//! keeps `services.search()` working for call sites not yet migrated off the
+//! `Services` aggregator.
 
 use crate::Result;
 
 use super::search_results::SearchResults;
 use super::search_scope::SearchScope;
-
-use super::post_matches::post_matches;
+use super::search_service::SearchService;
 use super::services::Services;
 
 impl Services {
+    /// Build the extracted [`SearchService`] from the ports this aggregator still
+    /// holds. Cheap — `Arc` clones only — so the delegator constructs one per call
+    /// rather than storing a field (which would break every `Services { … }`
+    /// literal). Removed once all call sites inject `SearchService` directly.
+    pub(super) fn search_service(&self) -> SearchService {
+        SearchService::new(self.posts.clone(), self.demoi.clone())
+    }
+
     /// Full-text-ish search over posts (title / body / tags) and, site-wide,
     /// communities (name / slug). A post matches if **any** query token is a
     /// substring of its title or body; an optional `tag` filter additionally
@@ -26,57 +33,6 @@ impl Services {
         scope: SearchScope,
         tag: Option<&str>,
     ) -> Result<SearchResults> {
-        let tokens: Vec<String> = query.split_whitespace().map(|t| t.to_lowercase()).collect();
-        // Normalize the tag filter the same way stored tags are, so it matches the
-        // index exactly and can never carry a `LIKE` metacharacter into the store.
-        let tag = tag.and_then(|t| normalize_tags(t).into_iter().next());
-
-        // With a tag filter, fetch the tagged rows straight from the index; without
-        // one, fall back to the full candidate list the tokens then filter.
-        let candidates = match (&tag, scope) {
-            (Some(t), SearchScope::All) => self.posts.by_tag(None, t).await?,
-            (Some(t), SearchScope::Demos(id)) => self.posts.by_tag(Some(id), t).await?,
-            (None, SearchScope::All) => self.posts.list_all().await?,
-            (None, SearchScope::Demos(id)) => self.posts.list(id).await?,
-        };
-        let posts = candidates
-            .into_iter()
-            .filter(|p| !p.removed && !p.pending_review)
-            .filter(|p| tokens.is_empty() || tokens.iter().any(|tok| post_matches(p, tok)))
-            .collect();
-
-        // Communities are only searched in the site-wide scope. A tag filter looks
-        // them up by the same index; otherwise they match on name/slug tokens.
-        let communities = if !matches!(scope, SearchScope::All) {
-            Vec::new()
-        } else if let Some(t) = &tag {
-            self.demoi
-                .by_tag(t)
-                .await?
-                .into_iter()
-                .filter(|d| {
-                    tokens.is_empty() || {
-                        let name = d.name.to_lowercase();
-                        let slug = d.slug.to_lowercase();
-                        tokens.iter().any(|tok| name.contains(tok) || slug.contains(tok))
-                    }
-                })
-                .collect()
-        } else if !tokens.is_empty() {
-            self.demoi
-                .list()
-                .await?
-                .into_iter()
-                .filter(|d| {
-                    let name = d.name.to_lowercase();
-                    let slug = d.slug.to_lowercase();
-                    tokens.iter().any(|t| name.contains(t) || slug.contains(t))
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
-
-        Ok(SearchResults { posts, communities })
+        self.search_service().search(query, scope, tag).await
     }
 }
