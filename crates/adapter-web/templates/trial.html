@@ -10,7 +10,20 @@
     {{ t.not_guilty_label }} <span class="aye">{{ not_guilty }}</span>
   </p>
   <p class="muted"><small>{{ t.jury_label }}: {% for j in jurors %}{{ j }}{% if !loop.last %}, {% endif %}{% endfor %}</small></p>
+  <p>{{ t.trial_proposed_term }}: <strong>{{ proposed_days }} d</strong></p>
 </div>
+
+{# The charge sheet — the context a juror weighs before voting. #}
+{% if !charges.is_empty() %}
+<h2>{{ t.trial_charges_heading }}</h2>
+{% for c in charges %}
+<div class="card">
+  <p><strong>{{ c.reason }}</strong> <span class="muted"><small>· {{ t.by_label }} {{ c.by }}</small></span></p>
+  {% if c.rule_text.is_some() %}<p><small>{{ t.trial_cited_rule }}:</small> {{ c.rule_text.as_ref().unwrap() }}</p>{% endif %}
+  {% if !c.note.is_empty() %}<p class="muted">{{ c.note }}</p>{% endif %}
+</div>
+{% endfor %}
+{% endif %}
 
 {% if open %}
   {% if viewer_is_juror %}
@@ -24,5 +37,25 @@
   {% else %}
   <p class="muted">{{ t.not_a_juror }}</p>
   {% endif %}
+{% endif %}
+
+{# The gallery — the community's public discussion of the case. Any voter may
+   speak here, juror or not; the argument is part of the public record. #}
+<h2>{{ t.trial_gallery_heading }}</h2>
+{% if comments.is_empty() %}<p class="muted">{{ t.trial_gallery_empty }}</p>{% endif %}
+{% for c in comments %}
+<div class="card">
+  <p class="muted"><small>{{ c.by }}</small></p>
+  <p>{{ c.body }}</p>
+</div>
+{% endfor %}
+
+{% if viewer_can_comment %}
+<form method="post" action="/trial/{{ id }}/comments" class="card">
+  <textarea name="body" rows="3" placeholder="{{ t.trial_comment_placeholder }}" required></textarea>
+  <button>{{ t.trial_comment_button }}</button>
+</form>
+{% else %}
+<p class="muted"><small>{{ t.trial_comment_voters_only }}</small></p>
 {% endif %}
 {% endblock %}

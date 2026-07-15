@@ -51,6 +51,8 @@ fn mk_services(store: Arc<PostgresStore>) -> Services {
         settings: store.clone(),
         sensitive_cases: store.clone(),
         trials: store.clone(),
+        notifications: store.clone(),
+        trial_comments: store.clone(),
         post_votes: store.clone(),
         comment_votes: store.clone(),
         media: Arc::new(LocalMediaStore::new(dir).unwrap()),
@@ -115,7 +117,7 @@ async fn a_vote_via_the_port_is_owned_synced_and_keeps_typed_errors() {
     let founder = UserStore::create(&*store_a, "f", None, None, Timestamp(1))
         .await
         .unwrap();
-    let demos = DemosStore::create(&*store_a, "rust", "R", founder.id, Timestamp(1))
+    let demos = DemosStore::create(&*store_a, "rust", "R", founder.id, Vec::new(), Timestamp(1))
         .await
         .unwrap();
     let v1 = UserStore::create(&*store_a, "v1", None, None, Timestamp(1))
@@ -126,7 +128,7 @@ async fn a_vote_via_the_port_is_owned_synced_and_keeps_typed_errors() {
         &*store_a,
         demos.id,
         founder.id,
-        ProposalKind::AddRule { text: "k".into() },
+        ProposalKind::AddRule { text: "k".into(), sanction_days: 0 },
         Timestamp(1),
         Timestamp(999_999),
     )

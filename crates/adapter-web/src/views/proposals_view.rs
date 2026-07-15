@@ -27,5 +27,10 @@ pub struct ProposalsView {
     pub posting_policy_kind: String,
     /// The current MinContribution threshold (0 when the policy isn't threshold-based).
     pub posting_policy_threshold: i64,
+    /// The community's current ban ceiling in days — the max a rule term may set
+    /// and the default shown in the ceiling form.
+    pub max_sanction_days: u32,
+    /// The 18-year platform cap — the upper bound on the ceiling itself.
+    pub platform_max_sanction_days: u32,
     pub proposals: Vec<ProposalView>,
 }

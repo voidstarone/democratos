@@ -1,0 +1,150 @@
+# ============================================================================
+# HOST 192.168.2.4 — the CONTENT node ("node 2").
+#
+# Runs only its OWN Postgres (db2), the app (node2), and a small Caddy that
+# terminates TLS for THIS node's federation feed (n2.ratbum.com) so node1 can
+# replicate from it over a publicly-trusted link. The control plane (etcd) and
+# media (MinIO) live on .5 and are reached across the LAN over TLS.
+#
+#   node1 (.5)  ── replicate ─▶  https://n2.ratbum.com ─▶ .4 Caddy ─▶ node2:7400
+#   node2       ── etcd ───────▶  https://etcd.ratbum.com:2379   (.5, mTLS)
+#   node2       ── media ──────▶  https://minio.ratbum.com       (.5, via Caddy)
+#   node2       ── peer feed ──▶  https://n1.ratbum.com          (.5, via Caddy)
+#
+# node2 has NO public web exposure; the public site is served from node1 on .5.
+# Fill deploy/prod/host4/.env from .env.example first. Build context is the repo
+# root (../../..).
+# ============================================================================
+
+services:
+  # --- node2's source-of-truth database --------------------------------------
+  db2:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      POSTGRES_DB: democratos
+    volumes:
+      - db2-data:/var/lib/postgresql/data
+    networks: [fabric]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d democratos"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # --- the app node ----------------------------------------------------------
+  node2:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+    image: democratos:latest
+    restart: unless-stopped
+    depends_on:
+      db2: {condition: service_healthy}
+    # Fabric names all live on .5 except this node itself (.4).
+    extra_hosts:
+      - "etcd.ratbum.com:192.168.2.5"
+      - "minio.ratbum.com:192.168.2.5"
+      - "n1.ratbum.com:192.168.2.5"
+      - "n2.ratbum.com:192.168.2.4"
+    environment:
+      DEMOCRATOS_NODE_ID: "2"
+
+      # storage
+      DEMOCRATOS_STORE: postgres
+      DATABASE_URL: postgres://app:${DB_PASSWORD}@db2:5432/democratos
+
+      # shared media on .5 over TLS
+      DEMOCRATOS_MEDIA: s3
+      DEMOCRATOS_S3_ENDPOINT: https://minio.ratbum.com
+      DEMOCRATOS_S3_BUCKET: democratos-media
+      DEMOCRATOS_S3_PATH_STYLE: "true"
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+      DEMOCRATOS_MEDIA_SANITIZER: reencode
+      DEMOCRATOS_QUARANTINE_DIR: /data/quarantine
+
+      # federation transport
+      DEMOCRATOS_FEDERATION_ADDR: 0.0.0.0:7400
+      DEMOCRATOS_ADVERTISE_URL: https://n2.ratbum.com     # trusted issuer must advertise
+      DEMOCRATOS_CLUSTER_TOKEN: ${DEMOCRATOS_CLUSTER_TOKEN:?set DEMOCRATOS_CLUSTER_TOKEN in .env}
+
+      # control plane on .5 over mutual TLS (internal CA)
+      DEMOCRATOS_ETCD_ENDPOINTS: https://etcd.ratbum.com:2379
+      DEMOCRATOS_ETCD_CA: /certs/etcd-ca.pem
+      DEMOCRATOS_ETCD_CERT: /certs/etcd-client.pem
+      DEMOCRATOS_ETCD_KEY: /certs/etcd-client-key.pem
+      DEMOCRATOS_ETCD_DOMAIN: etcd.ratbum.com
+
+      # trusted account issuing
+      FEDERATION_TRUST_ROOT: ${FEDERATION_TRUST_ROOT:?set FEDERATION_TRUST_ROOT in .env}
+      DEMOCRATOS_NODE_SEED: ${NODE2_SEED:?set NODE2_SEED in .env}
+
+      # web (LAN only; node2 is not the public entry point) + shared session secret
+      DEMOCRATOS_ADDR: 0.0.0.0:3000
+      DEMOCRATOS_PUBLIC_BASE_URL: https://demo.ratbum.com
+      DEMOCRATOS_SECURE_COOKIES: "1"
+      DEMOCRATOS_SESSION_SECRET: ${DEMOCRATOS_SESSION_SECRET:?set DEMOCRATOS_SESSION_SECRET in .env}
+
+      # invitation-only signup + admin queue (same policy as node1)
+      DEMOCRATOS_INVITE_ONLY: "1"
+      DEMOCRATOS_ADMIN_SUBNET: "192.168.2.0/24"
+      DEMOCRATOS_ADMIN_SECRET: ${DEMOCRATOS_ADMIN_SECRET:?set DEMOCRATOS_ADMIN_SECRET in .env}
+
+      # email: this node also honours invite approvals if it processes any
+      DEMOCRATOS_NOTIFIER: smtp
+      DEMOCRATOS_SMTP_HOST: ${DEMOCRATOS_SMTP_HOST:?set DEMOCRATOS_SMTP_HOST in .env}
+      DEMOCRATOS_SMTP_PORT: "${DEMOCRATOS_SMTP_PORT:-587}"
+      DEMOCRATOS_SMTP_STARTTLS: "${DEMOCRATOS_SMTP_STARTTLS:-true}"
+      DEMOCRATOS_SMTP_USERNAME: ${DEMOCRATOS_SMTP_USERNAME:?set DEMOCRATOS_SMTP_USERNAME in .env}
+      DEMOCRATOS_SMTP_PASSWORD: ${DEMOCRATOS_SMTP_PASSWORD:?set DEMOCRATOS_SMTP_PASSWORD in .env}
+      DEMOCRATOS_SMTP_FROM: ${DEMOCRATOS_SMTP_FROM:?set DEMOCRATOS_SMTP_FROM in .env}
+
+      DEMOCRATOS_RECOMMEND_INDEX: /tmp/democratos.recindex
+      DEMOCRATOS_REFRESH_SECS: "120"
+    command: ["serve", "--peer", "1=https://n1.ratbum.com"]
+    volumes:
+      - ./certs:/certs:ro
+      - node2-data:/data
+    tmpfs:
+      - /tmp:size=128m
+    networks: [fabric, edge]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 3s
+      start_period: 30s
+      retries: 3
+
+  # --- TLS front for THIS node's federation feed -----------------------------
+  # Only job: present a publicly-trusted cert for n2.ratbum.com (DNS-01) so node1
+  # can replicate node2's feed over TLS. No public ports are router-forwarded to
+  # .4 — this 443 is reachable only on the LAN.
+  caddy:
+    build:
+      context: ../caddy
+    image: democratos-caddy:latest
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    environment:
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:?set CLOUDFLARE_API_TOKEN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [node2]
+    networks: [edge]
+
+networks:
+  fabric: {}
+  edge: {}
+
+volumes:
+  db2-data:
+  node2-data:
+  caddy-data:
+  caddy-config:

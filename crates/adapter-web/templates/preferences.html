@@ -47,6 +47,28 @@
   </fieldset>
 
   <fieldset class="pref-group">
+    <legend>{{ t.pref_alerts_heading }}</legend>
+    <label class="pref-option">
+      <input type="checkbox" name="alert_mentions" value="on"{% if allows_mention_alerts %} checked{% endif %}>
+      <span>
+        <span class="label">{{ t.pref_alert_mentions }}</span>
+      </span>
+    </label>
+    <label class="pref-option">
+      <input type="checkbox" name="alert_jury" value="on"{% if allows_jury_alerts %} checked{% endif %}>
+      <span>
+        <span class="label">{{ t.pref_alert_jury }}</span>
+      </span>
+    </label>
+    <label class="pref-option">
+      <input type="checkbox" name="alert_trial_comments" value="on"{% if allows_trial_comment_alerts %} checked{% endif %}>
+      <span>
+        <span class="label">{{ t.pref_alert_trial_comments }}</span>
+      </span>
+    </label>
+  </fieldset>
+
+  <fieldset class="pref-group">
     <legend>{{ t.pref_review_heading }}</legend>
     <label class="pref-option">
       <input type="checkbox" name="review_sensitive" value="on"{% if is_sensitive_reviewer %} checked{% endif %}>

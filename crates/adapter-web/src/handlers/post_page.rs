@@ -12,6 +12,7 @@ use crate::handlers::handle_of::handle_of;
 use crate::handlers::render::render;
 use crate::handlers::render_error::render_error;
 use crate::handlers::resolve_lang::resolve_lang;
+use crate::handlers::viewer_blocks::viewer_blocks;
 use crate::i18n::lang::Lang;
 use crate::views::comment_row::CommentRow;
 use crate::views::media_item::MediaItem;
@@ -67,7 +68,10 @@ async fn build_post_view(
         Some(u) => state.services.memberships.get(u.id, post.demos_id).await?,
         None => None,
     };
-    let viewer_can_post = membership.as_ref().map(|m| !m.sanctioned).unwrap_or(false);
+    let viewer_can_post = membership
+        .as_ref()
+        .map(|m| !m.is_sanctioned(state.services.clock.now()))
+        .unwrap_or(false);
     let viewer_is_voter = membership.as_ref().map(|m| m.is_voter()).unwrap_or(false);
 
     let score = state.services.post_score(post_id).await?;
@@ -97,6 +101,7 @@ async fn build_post_view(
         .map(|r| RuleView {
             id: r.id.0,
             text: r.text,
+            ban_term: crate::i18n::rule_ban_term::rule_ban_term(lang, r.sanction_days),
         })
         .collect();
 
@@ -104,8 +109,12 @@ async fn build_post_view(
     let mut flat = Vec::new();
     flatten_comments(&tree, 0, &mut flat);
     let viewer_id = viewer.as_ref().map(|u| u.id);
+    // A blocked author's comment is kept in place (so replies below it stay
+    // threaded) but its body is withheld and voting suppressed.
+    let blocked = viewer_blocks(state, viewer_id).await;
     let mut comments = Vec::new();
     for (c, depth) in flat {
+        let is_blocked = blocked.contains(&c.author);
         let score = state.services.comment_score(c.id).await.unwrap_or(0);
         let viewer_vote = match viewer_id {
             Some(u) => state
@@ -121,10 +130,11 @@ async fn build_post_view(
             body: c.body,
             depth,
             removed: c.removed,
+            is_blocked,
             score,
             voted_up: viewer_vote == Some(true),
             voted_down: viewer_vote == Some(false),
-            votable: viewer_can_post,
+            votable: viewer_can_post && !is_blocked,
         });
     }
 

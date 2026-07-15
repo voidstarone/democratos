@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ t.notifications_heading }} · Democratos{% endblock %}
+{% block content %}
+<h1>{{ t.notifications_heading }}</h1>
+{% if rows.is_empty() %}
+<p class="muted">{{ t.notifications_empty }}</p>
+{% else %}
+<ul class="notif-list">
+  {% for r in rows %}
+  <li class="notif{% if r.is_unseen %} notif-unseen{% endif %}">
+    <a href="{{ r.href }}">{{ r.summary }}</a>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

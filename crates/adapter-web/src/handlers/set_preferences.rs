@@ -33,13 +33,21 @@ pub async fn set_preferences(
     };
     // A checkbox sends a value only when ticked; absence means "off".
     let wants_review = form.review_sensitive.is_some();
+    let wants_mentions = form.alert_mentions.is_some();
+    let wants_jury = form.alert_jury.is_some();
+    let wants_trial_comments = form.alert_trial_comments.is_some();
     let paging_saved = state.services.set_feed_paging(user.id, paging).await.is_ok();
     let review_saved = state
         .services
         .set_sensitive_reviewer(user.id, wants_review)
         .await
         .is_ok();
-    let saved = paging_saved && review_saved;
+    let alerts_saved = state
+        .services
+        .set_alert_prefs(user.id, wants_mentions, wants_jury, wants_trial_comments)
+        .await
+        .is_ok();
+    let saved = paging_saved && review_saved && alerts_saved;
     render(PreferencesView {
         t: lang.strings(),
         lang: lang.code(),
@@ -49,6 +57,21 @@ pub async fn set_preferences(
             wants_review
         } else {
             user.is_sensitive_reviewer
+        },
+        allows_mention_alerts: if alerts_saved {
+            wants_mentions
+        } else {
+            user.allows_mention_alerts
+        },
+        allows_jury_alerts: if alerts_saved {
+            wants_jury
+        } else {
+            user.allows_jury_alerts
+        },
+        allows_trial_comment_alerts: if alerts_saved {
+            wants_trial_comments
+        } else {
+            user.allows_trial_comment_alerts
         },
         current_user: Some(user.handle),
         saved,

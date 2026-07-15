@@ -21,6 +21,8 @@
     <input name="name" placeholder="{{ t.name_placeholder }}" required autofocus
            autocomplete="off" maxlength="80">
     <p class="muted slug-preview" hidden>{{ t.found_slug_hint }} <strong></strong></p>
+    <input name="tags" placeholder="{{ t.tags_placeholder }}" autocomplete="off" maxlength="120">
+    <p class="muted"><small>{{ t.found_tags_hint }}</small></p>
     <div><button>{{ t.founding_start_button }}</button></div>
   </form>
   <p class="muted"><small>{{ t.founding_needs_note }}</small></p>

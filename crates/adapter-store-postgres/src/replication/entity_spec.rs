@@ -111,6 +111,12 @@ pub(crate) fn entity_spec(entity: &str) -> Option<EntitySpec> {
             &["trial_id", "juror_id", "guilty", "weight"],
             &[],
         ),
+        "trial_comments" => spec(
+            "trial_comments",
+            "id = ($1->>'id')::bigint",
+            &["id", "trial_id", "data"],
+            &[],
+        ),
         _ => return None,
     })
 }
@@ -169,6 +175,7 @@ mod tests {
         for e in [
             "users", "demoi", "proposals", "rules", "posts", "comments", "reports",
             "trials", "memberships", "votes", "post_votes", "comment_votes", "jury_ballots",
+            "trial_comments",
         ] {
             assert!(!entity_spec(e).unwrap().columns.is_empty(), "{e} has columns");
         }

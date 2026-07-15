@@ -47,6 +47,8 @@ fn mk_services(store: Arc<PostgresStore>) -> Services {
         settings: store.clone(),
         sensitive_cases: store.clone(),
         trials: store.clone(),
+        notifications: store.clone(),
+        trial_comments: store.clone(),
         post_votes: store.clone(),
         comment_votes: store.clone(),
         media,
@@ -90,7 +92,7 @@ async fn votes_route_to_the_owner_and_fail_closed_without_one() {
     let founder = UserStore::create(&*store, "founder", None, None, Timestamp(1))
         .await
         .unwrap();
-    let demos = DemosStore::create(&*store, "rust", "R", founder.id, Timestamp(1))
+    let demos = DemosStore::create(&*store, "rust", "R", founder.id, Vec::new(), Timestamp(1))
         .await
         .unwrap();
     let v1 = UserStore::create(&*store, "v1", None, None, Timestamp(1))
@@ -107,6 +109,7 @@ async fn votes_route_to_the_owner_and_fail_closed_without_one() {
         founder.id,
         ProposalKind::AddRule {
             text: "be kind".into(),
+            sanction_days: 0,
         },
         Timestamp(1),
         Timestamp(999_999),
@@ -221,7 +224,7 @@ async fn votes_route_to_the_owner_and_fail_closed_without_one() {
         .unwrap());
 
     // --- fail-closed: a community with no owner refuses writes ---
-    let orphan = DemosStore::create(&*store, "orphan", "O", founder.id, Timestamp(1))
+    let orphan = DemosStore::create(&*store, "orphan", "O", founder.id, Vec::new(), Timestamp(1))
         .await
         .unwrap();
     add_voter(&store, v1.id, orphan.id).await;
@@ -229,7 +232,7 @@ async fn votes_route_to_the_owner_and_fail_closed_without_one() {
         &*store,
         orphan.id,
         founder.id,
-        ProposalKind::AddRule { text: "x".into() },
+        ProposalKind::AddRule { text: "x".into(), sanction_days: 0 },
         Timestamp(1),
         Timestamp(999_999),
     )

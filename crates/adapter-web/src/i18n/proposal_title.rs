@@ -18,10 +18,20 @@ pub fn proposal_title(lang: Lang, kind: &ProposalKind) -> String {
             "Enmendar criterios → antigüedad {}, miembro {}, contrib {}",
             proposed.min_account_age_days, proposed.min_membership_days, proposed.min_contribution
         ),
-        (Lang::En, ProposalKind::AddRule { text }) => format!("Add rule: {text}"),
+        (Lang::En, ProposalKind::AddRule { text, sanction_days }) => {
+            format!("Add rule ({}): {text}", ban_term_label_en(*sanction_days))
+        }
         (Lang::En, ProposalKind::RemoveRule { rule }) => format!("Repeal rule #{rule}"),
-        (Lang::Es, ProposalKind::AddRule { text }) => format!("Añadir regla: {text}"),
+        (Lang::Es, ProposalKind::AddRule { text, sanction_days }) => {
+            format!("Añadir regla ({}): {text}", ban_term_label_es(*sanction_days))
+        }
         (Lang::Es, ProposalKind::RemoveRule { rule }) => format!("Derogar la regla #{rule}"),
+        (Lang::En, ProposalKind::SetMaxSanction { days }) => {
+            format!("Set ban ceiling → {days} days")
+        }
+        (Lang::Es, ProposalKind::SetMaxSanction { days }) => {
+            format!("Límite de expulsión → {days} días")
+        }
         (Lang::En, ProposalKind::SetNsfwPolicy { allows_nsfw }) => {
             format!(
                 "Set NSFW policy → {}",
@@ -92,6 +102,24 @@ fn jury_sizing_label(sizing: JurySizing) -> String {
             )
         }
         JurySizing::Fixed { post, comment } => format!("{post} post / {comment} comment"),
+    }
+}
+
+/// How a rule's ban term reads in a proposal title. `0` means the rule inherits
+/// the community ceiling rather than naming its own term.
+fn ban_term_label_en(days: u32) -> String {
+    if days == 0 {
+        "ban: community max".to_string()
+    } else {
+        format!("ban: {days} days")
+    }
+}
+
+fn ban_term_label_es(days: u32) -> String {
+    if days == 0 {
+        "expulsión: máx. comunidad".to_string()
+    } else {
+        format!("expulsión: {days} días")
     }
 }
 

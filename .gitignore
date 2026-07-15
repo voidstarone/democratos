@@ -23,3 +23,5 @@ media/
 # Build artifacts.
 target/
 .DS_Store
+# Backup copies of the text-store data file (emails + password hashes).
+democratos.json.bak*

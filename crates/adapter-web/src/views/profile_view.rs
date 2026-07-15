@@ -20,6 +20,11 @@ pub struct ProfileView {
     pub handle: String,
     /// `"posts"` or `"comments"`.
     pub tab: String,
+    /// Whether to show the block/unblock control at all — a signed-in viewer
+    /// looking at someone else's profile (never one's own).
+    pub can_block: bool,
+    /// Whether the viewer currently blocks this account (picks Unblock vs Block).
+    pub is_blocked: bool,
     pub posts: Vec<ProfilePostItem>,
     pub comments: Vec<ProfileCommentItem>,
 }

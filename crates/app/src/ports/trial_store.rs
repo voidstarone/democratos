@@ -24,6 +24,9 @@ pub trait TrialStore: Send + Sync {
     async fn get(&self, id: TrialId) -> Result<Option<Trial>>;
     async fn update(&self, trial: &Trial) -> Result<()>;
     async fn list_open(&self, demos: DemosId) -> Result<Vec<Trial>>;
+    /// Every trial in `demos`, open and settled, newest first, capped to a recent
+    /// window. Backs the community's public case log; trials are public record.
+    async fn list_for_demos(&self, demos: DemosId) -> Result<Vec<Trial>>;
     /// Record a juror's ballot carrying their `weight` (1 under one-juror-one-vote).
     /// Errors with `AlreadyVoted` on a repeat.
     async fn cast_ballot(

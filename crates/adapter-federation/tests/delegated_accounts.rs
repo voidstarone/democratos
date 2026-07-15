@@ -47,6 +47,8 @@ fn mk_services(store: Arc<PostgresStore>) -> Services {
         settings: store.clone(),
         sensitive_cases: store.clone(),
         trials: store.clone(),
+        notifications: store.clone(),
+        trial_comments: store.clone(),
         post_votes: store.clone(),
         comment_votes: store.clone(),
         media,

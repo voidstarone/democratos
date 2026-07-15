@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 
 use domain::{
-    Comment, Demos, FoundingPetition, InviteRequest, Membership, Post, Proposal, Report, Rule,
-    SensitiveCase, Trial, User,
+    Comment, Demos, FoundingPetition, InviteRequest, Membership, Notification, Post, Proposal,
+    Report, Rule, SensitiveCase, Trial, TrialComment, User,
 };
 
 use crate::comment_vote_rec::CommentVoteRec;
@@ -29,7 +29,9 @@ pub(crate) struct Inner {
     pub(crate) invites: Vec<InviteRequest>,
     pub(crate) sensitive_cases: Vec<SensitiveCase>,
     pub(crate) trials: Vec<Trial>,
+    pub(crate) trial_comments: Vec<TrialComment>,
     pub(crate) jury_ballots: Vec<JuryBallotRec>,
+    pub(crate) notifications: Vec<Notification>,
     /// Uploaded media bytes, keyed by storage key → (content-type, bytes).
     pub(crate) media: HashMap<String, (String, Vec<u8>)>,
     pub(crate) next_user: u64,
@@ -43,6 +45,8 @@ pub(crate) struct Inner {
     pub(crate) next_invite: u64,
     pub(crate) next_sensitive_case: u64,
     pub(crate) next_trial: u64,
+    pub(crate) next_trial_comment: u64,
+    pub(crate) next_notification: u64,
     /// The persisted invitation-only toggle. `None` until the operator sets it,
     /// in which case the node keeps its boot default.
     pub(crate) invite_only: Option<bool>,

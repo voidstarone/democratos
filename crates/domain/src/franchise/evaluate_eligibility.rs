@@ -45,7 +45,7 @@ pub fn evaluate_eligibility(
         });
     }
 
-    if membership.sanctioned {
+    if membership.is_sanctioned(now) {
         unmet.push(Unmet::Sanctioned);
     }
 
@@ -114,7 +114,7 @@ mod tests {
     fn sanction_alone_disqualifies() {
         let now = Timestamp(100 * DAY);
         let mut m = member_aged(20, 9, now);
-        m.sanctioned = true;
+        m.sanction_for(now, 30);
         let e = evaluate_eligibility(
             &user_aged(40, now),
             &m,

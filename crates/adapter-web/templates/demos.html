@@ -105,10 +105,11 @@
     <div class="card">
       <h3>{{ t.rules_heading }}</h3>
       {% if rules.is_empty() %}<p class="muted">{{ t.no_rules }}</p>{% endif %}
-      <ol>{% for r in rules %}<li>{{ r.text }}</li>{% endfor %}</ol>
+      <ol>{% for r in rules %}<li>{{ r.text }} <span class="muted"><small>({{ r.ban_term }})</small></span></li>{% endfor %}</ol>
       {% if viewer_is_voter %}
       <p class="muted"><small><a href="/d/{{ slug }}/proposals">{{ t.proposals_link }} →</a></small></p>
       {% endif %}
+      <p class="muted"><small><a href="/d/{{ slug }}/trials">{{ t.case_log_link }} →</a></small></p>
     </div>
 
     <div class="card">

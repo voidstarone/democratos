@@ -8,15 +8,16 @@ use sqlx::{Executor, Postgres, Transaction};
 use app::{Result, StoreError};
 use app::{
     CommentStore, CommentVoteStore, DemosStore, FoundingStore, InviteRequestStore, MembershipStore,
-    PostStore, PostVoteStore, ProposalStore, ReportStore, RuleStore, SensitiveCaseStore,
-    SettingsStore, TrialStore, UserStore, VoteStore,
+    NotificationStore, PostStore, PostVoteStore, ProposalStore, ReportStore, RuleStore,
+    SensitiveCaseStore, SettingsStore, TrialCommentStore, TrialStore, UserStore, VoteStore,
 };
 use domain::{
     compose_id, Comment, CommentId, Demos, DemosId, FeedPaging, FoundingId, FoundingPetition,
     FranchiseCriteria, InviteId, InviteRequest, InviteStatus, JurySizing, Media, Membership, NodeId,
-    Post, PostId, PostingPolicy, Proposal, ProposalId, ProposalKind, Report, ReportId, ReportReason,
-    ReportStatus, ReportTarget, Rule, RuleId, SensitiveCase, SensitiveCaseId, SensitiveCaseStatus,
-    Tally, Tier, Timestamp, Trial, TrialId, User, UserId, Verdict, VoteWeighting, WeightingScope,
+    Notification, NotificationId, NotificationKind, Post, PostId, PostingPolicy, Proposal,
+    ProposalId, ProposalKind, Report, ReportId, ReportReason, ReportStatus, ReportTarget, Rule,
+    RuleId, SensitiveCase, SensitiveCaseId, SensitiveCaseStatus, Tally, Tier, Timestamp, Trial,
+    TrialComment, TrialCommentId, TrialId, User, UserId, Verdict, VoteWeighting, WeightingScope,
 };
 
 use crate::is_insecure_url::is_insecure_url;
@@ -291,6 +292,77 @@ impl UserStore for PostgresStore {
         Ok(())
     }
 
+    async fn block_user(&self, blocker: UserId, blocked: UserId) -> Result<()> {
+        // Append the id to the JSONB `blocked` array, de-duplicating so a repeat
+        // block is idempotent. A single UPDATE, so it needs no read-modify-write.
+        let n = sqlx::query(
+            "UPDATE users SET data = jsonb_set(data, '{blocked}', \
+               (SELECT coalesce(jsonb_agg(DISTINCT e), '[]'::jsonb) \
+                FROM jsonb_array_elements( \
+                  coalesce(data->'blocked', '[]'::jsonb) || to_jsonb($2::bigint)) e)) \
+             WHERE id = $1",
+        )
+        .bind(blocker.0 as i64)
+        .bind(blocked.0 as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(store_err)?
+        .rows_affected();
+        if n == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
+    }
+
+    async fn unblock_user(&self, blocker: UserId, blocked: UserId) -> Result<()> {
+        let n = sqlx::query(
+            "UPDATE users SET data = jsonb_set(data, '{blocked}', \
+               (SELECT coalesce(jsonb_agg(e), '[]'::jsonb) \
+                FROM jsonb_array_elements(coalesce(data->'blocked', '[]'::jsonb)) e \
+                WHERE e <> to_jsonb($2::bigint))) \
+             WHERE id = $1",
+        )
+        .bind(blocker.0 as i64)
+        .bind(blocked.0 as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(store_err)?
+        .rows_affected();
+        if n == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
+    }
+
+    async fn set_alert_prefs(
+        &self,
+        id: UserId,
+        allows_mention_alerts: bool,
+        allows_jury_alerts: bool,
+        allows_trial_comment_alerts: bool,
+    ) -> Result<()> {
+        let n = sqlx::query(
+            "UPDATE users SET data = jsonb_set( \
+               jsonb_set( \
+                 jsonb_set(data, '{allows_mention_alerts}', to_jsonb($2::bool)), \
+                 '{allows_jury_alerts}', to_jsonb($3::bool)), \
+               '{allows_trial_comment_alerts}', to_jsonb($4::bool)) \
+             WHERE id = $1",
+        )
+        .bind(id.0 as i64)
+        .bind(allows_mention_alerts)
+        .bind(allows_jury_alerts)
+        .bind(allows_trial_comment_alerts)
+        .execute(&self.pool)
+        .await
+        .map_err(store_err)?
+        .rows_affected();
+        if n == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
+    }
+
     async fn set_feed_paging(&self, id: UserId, paging: FeedPaging) -> Result<()> {
         // Store the enum by its serde tag ("auto"/"pages"/"lazy") so it round-trips
         // straight back into `FeedPaging` when the document is deserialized.
@@ -538,11 +610,15 @@ impl DemosStore for PostgresStore {
         slug: &str,
         name: &str,
         founder: UserId,
+        tags: Vec<String>,
         created_at: Timestamp,
     ) -> Result<Demos> {
         let mut tx = self.pool.begin().await.map_err(store_err)?;
         let id = self.alloc(&mut tx, "demos").await?;
-        let demos = Demos::new(DemosId(id), slug, name, founder, created_at);
+        // Tags live in the `data` document; the `tags` column is a generated,
+        // pipe-wrapped index Postgres derives from it (see migration 0015), so it
+        // needs no explicit write here.
+        let demos = Demos::new(DemosId(id), slug, name, founder, created_at).with_tags(tags);
         sqlx::query("INSERT INTO demoi (id, slug, created_at, data) VALUES ($1, $2, $3, $4)")
             .bind(id as i64)
             .bind(slug)
@@ -573,6 +649,24 @@ impl DemosStore for PostgresStore {
         Ok(row.map(|(j,)| j.0))
     }
 
+    async fn by_tag(&self, tag: &str) -> Result<Vec<Demos>> {
+        // The `tags` column is the pipe-wrapped search index (see migration 0015);
+        // bracketing the bound tag with bars in SQL makes it an exact-tag match
+        // (`|rust|` inside `|rust|async|`), never a prefix hit. `tag` is normalized
+        // (`[a-z0-9-]`) upstream so it carries no `LIKE` metacharacter, and it is
+        // bound, never interpolated. The pipe encoding stays inside this adapter.
+        let rows: Vec<(Json<Demos>,)> = sqlx::query_as(
+            "SELECT data FROM demoi WHERE tags LIKE '%|' || $1 || '|%' \
+             ORDER BY created_at DESC, id DESC LIMIT $2",
+        )
+        .bind(tag)
+        .bind(MAX_ROWS)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(store_err)?;
+        Ok(rows.into_iter().map(|(j,)| j.0).collect())
+    }
+
     async fn update_criteria(&self, id: DemosId, criteria: FranchiseCriteria) -> Result<()> {
         self.update_demos(id, |d| d.criteria = criteria).await
     }
@@ -595,6 +689,10 @@ impl DemosStore for PostgresStore {
 
     async fn set_posting_policy(&self, id: DemosId, policy: PostingPolicy) -> Result<()> {
         self.update_demos(id, |d| d.posting_policy = policy).await
+    }
+
+    async fn set_max_sanction(&self, id: DemosId, days: u32) -> Result<()> {
+        self.update_demos(id, |d| d.max_sanction_days = days).await
     }
 
     async fn list(&self) -> Result<Vec<Demos>> {
@@ -634,17 +732,22 @@ impl FoundingStore for PostgresStore {
         slug: &str,
         name: &str,
         founder: UserId,
+        tags: Vec<String>,
         created_at: Timestamp,
     ) -> Result<FoundingPetition> {
         let mut tx = self.pool.begin().await.map_err(store_err)?;
         let id = self.alloc(&mut tx, "founding").await?;
         sqlx::query(
-            "INSERT INTO foundings (id, slug, name, founder, created_at) VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO foundings (id, slug, name, founder, tags, created_at) \
+             VALUES ($1, $2, $3, $4, $5, $6)",
         )
         .bind(id as i64)
         .bind(slug)
         .bind(name)
         .bind(founder.0 as i64)
+        // The petition's tags are a native `text[]` column — no encoding needed;
+        // sqlx maps `Vec<String>` to/from it directly.
+        .bind(&tags)
         .bind(created_at.0)
         .execute(&mut *tx)
         .await
@@ -658,18 +761,19 @@ impl FoundingStore for PostgresStore {
             // A fresh petition has only the founder's intent; nobody has signed yet.
             sign_offs: Vec::new(),
             created_at,
+            tags,
         })
     }
 
     async fn get(&self, id: FoundingId) -> Result<Option<FoundingPetition>> {
-        let row: Option<(i64, String, String, i64, i64)> = sqlx::query_as(
-            "SELECT id, slug, name, founder, created_at FROM foundings WHERE id = $1",
+        let row: Option<(i64, String, String, i64, Vec<String>, i64)> = sqlx::query_as(
+            "SELECT id, slug, name, founder, tags, created_at FROM foundings WHERE id = $1",
         )
         .bind(id.0 as i64)
         .fetch_optional(&self.pool)
         .await
         .map_err(store_err)?;
-        let Some((rid, slug, name, founder, created_at)) = row else {
+        let Some((rid, slug, name, founder, tags, created_at)) = row else {
             return Ok(None);
         };
         let sign_offs = self.founding_sign_offs(rid).await?;
@@ -680,6 +784,7 @@ impl FoundingStore for PostgresStore {
             founder: UserId(founder as u64),
             sign_offs,
             created_at: Timestamp(created_at),
+            tags,
         }))
     }
 
@@ -717,14 +822,15 @@ impl FoundingStore for PostgresStore {
     }
 
     async fn list(&self) -> Result<Vec<FoundingPetition>> {
-        let rows: Vec<(i64, String, String, i64, i64)> = sqlx::query_as(
-            "SELECT id, slug, name, founder, created_at FROM foundings ORDER BY created_at DESC, id DESC",
+        let rows: Vec<(i64, String, String, i64, Vec<String>, i64)> = sqlx::query_as(
+            "SELECT id, slug, name, founder, tags, created_at \
+             FROM foundings ORDER BY created_at DESC, id DESC",
         )
         .fetch_all(&self.pool)
         .await
         .map_err(store_err)?;
         let mut out = Vec::with_capacity(rows.len());
-        for (rid, slug, name, founder, created_at) in rows {
+        for (rid, slug, name, founder, tags, created_at) in rows {
             let sign_offs = self.founding_sign_offs(rid).await?;
             out.push(FoundingPetition {
                 id: FoundingId(rid as u64),
@@ -733,6 +839,7 @@ impl FoundingStore for PostgresStore {
                 founder: UserId(founder as u64),
                 sign_offs,
                 created_at: Timestamp(created_at),
+                tags,
             });
         }
         Ok(out)
@@ -1062,10 +1169,16 @@ impl PostVoteStore for PostgresStore {
 
 #[async_trait]
 impl RuleStore for PostgresStore {
-    async fn create(&self, demos: DemosId, text: &str, at: Timestamp) -> Result<Rule> {
+    async fn create(
+        &self,
+        demos: DemosId,
+        text: &str,
+        sanction_days: u32,
+        at: Timestamp,
+    ) -> Result<Rule> {
         let mut tx = self.pool.begin().await.map_err(store_err)?;
         let id = self.alloc(&mut tx, "rule").await?;
-        let rule = Rule::new(RuleId(id), demos, text, at);
+        let rule = Rule::new(RuleId(id), demos, text, sanction_days, at);
         sqlx::query("INSERT INTO rules (id, demos_id, active, data) VALUES ($1, $2, $3, $4)")
             .bind(id as i64)
             .bind(demos.0 as i64)
@@ -1236,6 +1349,27 @@ impl PostStore for PostgresStore {
                 .fetch_all(&self.pool)
                 .await
                 .map_err(store_err)?;
+        Ok(rows.into_iter().map(|(j,)| j.0).collect())
+    }
+
+    async fn by_tag(&self, demos: Option<DemosId>, tag: &str) -> Result<Vec<Post>> {
+        // Exact-tag match against the pipe-wrapped `tags` index (`|rust|` inside
+        // `|rust|async|`), optionally narrowed to one community. `tag` is
+        // normalized upstream so it carries no `LIKE` metacharacter, and it is
+        // bound, never interpolated. The `demos` filter is NULL-guarded so one
+        // query serves both the site-wide and single-community searches.
+        let rows: Vec<(Json<Post>,)> = sqlx::query_as(
+            "SELECT data FROM posts \
+             WHERE tags LIKE '%|' || $1 || '|%' \
+               AND ($2::bigint IS NULL OR demos_id = $2) \
+             ORDER BY created_at DESC, id DESC LIMIT $3",
+        )
+        .bind(tag)
+        .bind(demos.map(|d| d.0 as i64))
+        .bind(MAX_ROWS)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(store_err)?;
         Ok(rows.into_iter().map(|(j,)| j.0).collect())
     }
 
@@ -1670,6 +1804,19 @@ impl TrialStore for PostgresStore {
         Ok(rows.into_iter().map(|(j,)| j.0).collect())
     }
 
+    async fn list_for_demos(&self, demos: DemosId) -> Result<Vec<Trial>> {
+        // The public case log: open and settled, newest first, capped.
+        let rows: Vec<(Json<Trial>,)> = sqlx::query_as(
+            "SELECT data FROM trials WHERE demos_id = $1 ORDER BY id DESC LIMIT $2",
+        )
+        .bind(demos.0 as i64)
+        .bind(MAX_ROWS)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(store_err)?;
+        Ok(rows.into_iter().map(|(j,)| j.0).collect())
+    }
+
     async fn cast_ballot(
         &self,
         trial: TrialId,
@@ -1719,5 +1866,107 @@ impl TrialStore for PostgresStore {
         .await
         .map_err(store_err)?;
         Ok((guilty as u64, not_guilty as u64))
+    }
+}
+
+#[async_trait]
+impl TrialCommentStore for PostgresStore {
+    async fn add(
+        &self,
+        trial: TrialId,
+        author: UserId,
+        body: String,
+        at: Timestamp,
+    ) -> Result<TrialComment> {
+        let mut tx = self.pool.begin().await.map_err(store_err)?;
+        let id = self.alloc(&mut tx, "trial_comment").await?;
+        let comment = TrialComment::new(TrialCommentId(id), trial, author, body, at);
+        sqlx::query("INSERT INTO trial_comments (id, trial_id, data) VALUES ($1, $2, $3)")
+            .bind(id as i64)
+            .bind(trial.0 as i64)
+            .bind(Json(&comment))
+            .execute(&mut *tx)
+            .await
+            .map_err(store_err)?;
+        tx.commit().await.map_err(store_err)?;
+        Ok(comment)
+    }
+
+    async fn list_for_trial(&self, trial: TrialId) -> Result<Vec<TrialComment>> {
+        // A trial's discussion, oldest first, capped like every other list read.
+        let rows: Vec<(Json<TrialComment>,)> = sqlx::query_as(
+            "SELECT data FROM trial_comments WHERE trial_id = $1 ORDER BY id LIMIT $2",
+        )
+        .bind(trial.0 as i64)
+        .bind(MAX_ROWS)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(store_err)?;
+        Ok(rows.into_iter().map(|(j,)| j.0).collect())
+    }
+}
+
+/// The most recent notifications a member is shown (older ones fall off).
+const NOTIFICATION_WINDOW: i64 = 100;
+
+#[async_trait]
+impl NotificationStore for PostgresStore {
+    async fn push(
+        &self,
+        recipient: UserId,
+        kind: NotificationKind,
+        at: Timestamp,
+    ) -> Result<Notification> {
+        let mut tx = self.pool.begin().await.map_err(store_err)?;
+        let id = self.alloc(&mut tx, "notification").await?;
+        let n = Notification::new(NotificationId(id), recipient, kind, at);
+        sqlx::query("INSERT INTO notifications (id, recipient, seen, data) VALUES ($1, $2, $3, $4)")
+            .bind(id as i64)
+            .bind(recipient.0 as i64)
+            .bind(n.seen)
+            .bind(Json(&n))
+            .execute(&mut *tx)
+            .await
+            .map_err(store_err)?;
+        tx.commit().await.map_err(store_err)?;
+        Ok(n)
+    }
+
+    async fn list_for(&self, recipient: UserId) -> Result<Vec<Notification>> {
+        let rows: Vec<(Json<Notification>,)> = sqlx::query_as(
+            "SELECT data FROM notifications WHERE recipient = $1 ORDER BY id DESC LIMIT $2",
+        )
+        .bind(recipient.0 as i64)
+        .bind(NOTIFICATION_WINDOW)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(store_err)?;
+        Ok(rows.into_iter().map(|(j,)| j.0).collect())
+    }
+
+    async fn unread_count(&self, recipient: UserId) -> Result<u64> {
+        let (count,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM notifications WHERE recipient = $1 AND NOT seen",
+        )
+        .bind(recipient.0 as i64)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(store_err)?;
+        Ok(count as u64)
+    }
+
+    async fn mark_all_seen(&self, recipient: UserId) -> Result<()> {
+        // Keep both the denormalized column and the JSONB `seen` in step, so a
+        // later `list_for` reads the notifications back as seen.
+        sqlx::query(
+            "UPDATE notifications \
+             SET seen = true, data = jsonb_set(data, '{seen}', 'true'::jsonb) \
+             WHERE recipient = $1 AND NOT seen",
+        )
+        .bind(recipient.0 as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(store_err)?;
+        Ok(())
     }
 }

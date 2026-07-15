@@ -25,6 +25,9 @@ pub async fn preferences_page(State(state): State<AppState>, headers: HeaderMap)
         lang: lang.code(),
         feed_paging: paging_str(user.feed_paging),
         is_sensitive_reviewer: user.is_sensitive_reviewer,
+        allows_mention_alerts: user.allows_mention_alerts,
+        allows_jury_alerts: user.allows_jury_alerts,
+        allows_trial_comment_alerts: user.allows_trial_comment_alerts,
         current_user: Some(user.handle),
         saved: false,
     })

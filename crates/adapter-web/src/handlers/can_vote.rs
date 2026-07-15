@@ -17,7 +17,7 @@ pub(crate) async fn can_vote(state: &AppState, viewer: Option<UserId>, demos: De
             .await
             .ok()
             .flatten()
-            .map(|m| !m.sanctioned)
+            .map(|m| !m.is_sanctioned(state.services.clock.now()))
             .unwrap_or(false),
         None => false,
     }

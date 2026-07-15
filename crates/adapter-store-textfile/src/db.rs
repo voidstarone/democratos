@@ -3,8 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 use domain::{
-    Comment, Demos, FoundingPetition, InviteRequest, Membership, Post, Proposal, Report, Rule,
-    SensitiveCase, Trial, User,
+    Comment, Demos, FoundingPetition, InviteRequest, Membership, Notification, Post, Proposal,
+    Report, Rule, SensitiveCase, Trial, TrialComment, User,
 };
 
 use crate::comment_vote_rec::CommentVoteRec;
@@ -35,7 +35,11 @@ pub(crate) struct Db {
     #[serde(default)]
     pub(crate) sensitive_cases: Vec<SensitiveCase>,
     pub(crate) trials: Vec<Trial>,
+    #[serde(default)]
+    pub(crate) trial_comments: Vec<TrialComment>,
     pub(crate) jury_ballots: Vec<JuryBallotRec>,
+    #[serde(default)]
+    pub(crate) notifications: Vec<Notification>,
     pub(crate) next_user: u64,
     pub(crate) next_demos: u64,
     #[serde(default)]
@@ -50,6 +54,10 @@ pub(crate) struct Db {
     #[serde(default)]
     pub(crate) next_sensitive_case: u64,
     pub(crate) next_trial: u64,
+    #[serde(default)]
+    pub(crate) next_trial_comment: u64,
+    #[serde(default)]
+    pub(crate) next_notification: u64,
     /// The persisted invitation-only toggle; `None` until the operator sets it.
     #[serde(default)]
     pub(crate) invite_only: Option<bool>,

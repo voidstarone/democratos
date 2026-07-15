@@ -1,7 +1,17 @@
 {% extends "base.html" %}
 {% block title %}@{{ handle }} · Democratos{% endblock %}
 {% block content %}
-<h1>@{{ handle }}</h1>
+<div class="profile-head" style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+  <h1 style="margin:0">@{{ handle }}</h1>
+  {% if can_block %}
+  {% if is_blocked %}
+  <form method="post" action="/u/{{ handle }}/unblock"><button class="ghost">{{ t.unblock_button }}</button></form>
+  {% else %}
+  <form method="post" action="/u/{{ handle }}/block"><button class="ghost">{{ t.block_button }}</button></form>
+  {% endif %}
+  {% endif %}
+</div>
+{% if is_blocked %}<p class="muted">{{ t.blocked_notice }}</p>{% endif %}
 
 {# Tabs are ordinary links to ?tab=… so switching works with no JavaScript. #}
 <nav class="tabs" aria-label="profile sections">

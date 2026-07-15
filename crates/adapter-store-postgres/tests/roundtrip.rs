@@ -80,7 +80,7 @@ async fn double_vote_rejected_and_tally_weighted(store: &PostgresStore) {
     let founder = UserStore::create(store, "founder", None, None, Timestamp(0))
         .await
         .unwrap();
-    let demos = DemosStore::create(store, "rust", "Rustaceans", founder.id, Timestamp(0))
+    let demos = DemosStore::create(store, "rust", "Rustaceans", founder.id, Vec::new(), Timestamp(0))
         .await
         .unwrap();
     let p = ProposalStore::create(
@@ -89,6 +89,7 @@ async fn double_vote_rejected_and_tally_weighted(store: &PostgresStore) {
         founder.id,
         ProposalKind::AddRule {
             text: "be kind".into(),
+            sanction_days: 0,
         },
         Timestamp(0),
         Timestamp(1000),
@@ -122,7 +123,7 @@ async fn voter_count_and_admitted_since(store: &PostgresStore) {
     let founder = UserStore::create(store, "gopher", None, None, Timestamp(0))
         .await
         .unwrap();
-    let demos = DemosStore::create(store, "go", "Gophers", founder.id, Timestamp(0))
+    let demos = DemosStore::create(store, "go", "Gophers", founder.id, Vec::new(), Timestamp(0))
         .await
         .unwrap();
 

@@ -24,7 +24,14 @@ pub async fn propose_rule(
     let (user, demos) = require_user_and_demos!(state, headers, lang, slug);
     match state
         .services
-        .open_proposal(user.id, demos.id, ProposalKind::AddRule { text: form.text })
+        .open_proposal(
+            user.id,
+            demos.id,
+            ProposalKind::AddRule {
+                text: form.text,
+                sanction_days: form.sanction_days,
+            },
+        )
         .await
     {
         Ok(_) => Redirect::to(&format!("/d/{slug}")).into_response(),

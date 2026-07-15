@@ -26,13 +26,23 @@ pub async fn profile_page(
     headers: HeaderMap,
 ) -> Response {
     let lang = resolve_lang(&headers);
-    let viewer = current_user(&state, &headers).await.map(|u| u.handle);
+    let viewer_user = current_user(&state, &headers).await;
+    let viewer = viewer_user.as_ref().map(|u| u.handle.clone());
 
     let user = match state.services.user_by_handle(&handle).await {
         Ok(Some(u)) => u,
         Ok(None) => return render_error(lang, viewer, "no such user".to_string()),
         Err(e) => return render_error(lang, viewer, e.to_string()),
     };
+
+    // A signed-in viewer can block anyone but themselves; the button flips to
+    // "Unblock" once the block is in force.
+    let is_self = viewer_user.as_ref().map(|u| u.id) == Some(user.id);
+    let is_blocked = match &viewer_user {
+        Some(v) if !is_self => v.blocks(user.id),
+        _ => false,
+    };
+    let can_block = viewer_user.is_some() && !is_self;
 
     let show_comments = query.tab.as_deref() == Some("comments");
     let mut posts = Vec::new();
@@ -72,6 +82,8 @@ pub async fn profile_page(
         current_user: viewer,
         handle: user.handle,
         tab: if show_comments { "comments" } else { "posts" }.to_string(),
+        can_block,
+        is_blocked,
         posts,
         comments,
     })

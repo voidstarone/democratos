@@ -111,6 +111,9 @@
         {% endif %}
       </div>
       <div class="post-main">
+        {% if c.is_blocked %}
+        <em class="muted">{{ t.comment_blocked }}</em>
+        {% else %}
         <div class="muted"><small>{{ t.by_label }} {{ c.author }}</small></div>
         {% if c.removed %}<em class="muted">{{ t.removed_label }}</em>{% else %}{{ c.body }}{% endif %}
         {% if viewer_can_post && !c.removed %}
@@ -122,6 +125,7 @@
             <button class="ghost">{{ t.reply_button }}</button>
           </form>
         </details>
+        {% endif %}
         {% endif %}
       </div>
     </div>

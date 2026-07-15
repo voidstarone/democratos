@@ -16,6 +16,7 @@ use crate::handlers::paging_mode::paging_mode;
 use crate::handlers::post_row::post_row;
 use crate::handlers::render::render;
 use crate::handlers::resolve_lang::resolve_lang;
+use crate::handlers::viewer_blocks::viewer_blocks;
 use crate::handlers::wants_fragment::wants_fragment;
 use crate::views::feed_fragment_view::FeedFragmentView;
 use crate::views::top_view::TopView;
@@ -35,7 +36,9 @@ pub async fn top_page(
     let page = page_of(pg.page);
     let mode = paging_mode(user.as_ref());
 
-    let all = state.services.top_posts().await.unwrap_or_default();
+    let mut all = state.services.top_posts().await.unwrap_or_default();
+    let blocked = viewer_blocks(&state, viewer_id).await;
+    all.retain(|item| !blocked.contains(&item.post.author));
     let (window, has_next) = paginate(all, page);
     let mut posts = Vec::new();
     for item in window {

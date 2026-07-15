@@ -94,6 +94,8 @@ async fn build_proposals_view(
         ),
         posting_policy_kind: posting_policy_kind.to_string(),
         posting_policy_threshold,
+        max_sanction_days: demos.max_sanction_days,
+        platform_max_sanction_days: domain::MAX_SANCTION_DAYS,
         proposals,
     })
 }

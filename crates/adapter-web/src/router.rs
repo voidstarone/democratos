@@ -100,6 +100,10 @@ pub fn router(
             "/d/:slug/posting-policy",
             post(handlers::propose_posting_policy::propose_posting_policy),
         )
+        .route(
+            "/d/:slug/max-sanction",
+            post(handlers::propose_max_sanction::propose_max_sanction),
+        )
         // Global composer: pick a community, attach many media in one post.
         .route("/submit", get(handlers::submit_page::submit_page))
         .route(
@@ -114,9 +118,20 @@ pub fn router(
             )),
         )
         .route("/d/:slug/reports", get(handlers::reports_page::reports_page))
+        .route("/d/:slug/trials", get(handlers::case_log_page::case_log_page))
         .route("/search", get(handlers::search_page::search_page))
         .route("/media/:key", get(handlers::serve_media::serve_media))
+        .route(
+            "/notifications",
+            get(handlers::notifications_page::notifications_page),
+        )
+        .route(
+            "/notifications/summary",
+            get(handlers::notifications_summary::notifications_summary),
+        )
         .route("/u/:handle", get(handlers::profile_page::profile_page))
+        .route("/u/:handle/block", post(handlers::block::block))
+        .route("/u/:handle/unblock", post(handlers::unblock::unblock))
         .route("/post/:id", get(handlers::post_page::post_page))
         .route("/post/:id/vote", post(handlers::post_vote::post_vote))
         .route("/post/:id/comments", post(handlers::add_comment::add_comment))
@@ -125,6 +140,10 @@ pub fn router(
         .route("/report/:id/trial", post(handlers::open_trial::open_trial))
         .route("/trial/:id", get(handlers::trial_page::trial_page))
         .route("/trial/:id/vote", post(handlers::jury_vote::jury_vote))
+        .route(
+            "/trial/:id/comments",
+            post(handlers::comment_on_trial::comment_on_trial),
+        )
         .route("/static/app.js", get(handlers::app_js::app_js))
         .route("/static/composer.js", get(handlers::composer_js::composer_js))
         // Dev account switcher — the fake sign-in. Inert unless `--dev` *and* the
@@ -136,6 +155,10 @@ pub fn router(
         .route("/dev/accounts", get(dev::accounts::accounts))
         .route("/dev/switch", post(dev::switch::switch))
         .route("/dev/create", post(dev::create::create))
+        // Trial theater: seed a full jury trial and walk it from every seat.
+        .route("/dev/trial", get(dev::trial_theater::trial_theater))
+        .route("/dev/trial/seed", post(dev::seed_trial_handler::seed_trial_handler))
+        .route("/dev/trial/as", post(dev::act_as::act_as))
         // Rate limiting runs before the handlers (outermost of the two `layer`s
         // that touch every route) so a throttled request is rejected cheaply,
         // before any Argon2 work. It reads `ConnectInfo`, so it keys on the real

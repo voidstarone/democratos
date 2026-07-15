@@ -15,6 +15,7 @@ pub mod can_post_error;
 pub mod cast_jury_vote_error;
 pub mod cast_vote_error;
 pub mod close_proposal_error;
+pub mod comment_on_trial_error;
 pub mod create_post_error;
 pub mod enroll_public_key_error;
 pub mod ensure_barred_account_error;

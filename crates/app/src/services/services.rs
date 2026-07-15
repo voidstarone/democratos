@@ -8,10 +8,11 @@ use domain::{
     bot_score, enfranchisement_slots, evaluate_eligibility, is_likely_bot, outcome_for,
     reach_verdict, select_jury, slugify, BotSignals, Comment, CommentId, ContentScale, Demos,
     DemosId, Eligibility, FeedPaging, FoundingId, FoundingPetition, InviteId, InviteRequest, Media,
-    Membership, Phase, Post,
+    mentions, Membership, Notification, NotificationKind, normalize_tags, Phase, Post, MAX_SANCTION_DAYS,
     PostId, PostingPolicy, Proposal, ProposalId, ProposalKind, ProposalStatus, Report, ReportId,
-    ReportReason, ReportStatus, ReportTarget, ReviewOutcome, Rule, SensitiveCase, SensitiveCaseId,
-    SensitiveTag, Tier, Timestamp, Trial, TrialId, User, UserId, Verdict, VoteWeighting,
+    ReportReason, ReportStatus, ReportTarget, ReviewOutcome, Rule, RuleId, SensitiveCase, SensitiveCaseId,
+    SensitiveTag, Tier, Timestamp, Trial, TrialComment, TrialId, User, UserId, Verdict,
+    VoteWeighting,
 };
 
 use domain::feed_threshold;
@@ -29,13 +30,14 @@ use crate::invite::hash_token::hash_token;
 use crate::invite::new_invite_token::new_invite_token;
 use crate::{
     AgeVerifier, Clock, CommentStore, CommentVoteStore, DemosStore, FoundingStore,
-    InviteRequestStore, MediaStore, MediaVerdict, MembershipStore, Notifier, NsfwScanner, PostStore,
-    PostVoteStore, ProposalStore, RecommendFeed, RefreshRecommendations, ReportStore, RuleStore,
-    SensitiveCaseStore, SettingsStore, SimilarityIndex, TrialStore, UserStore, VoteStore,
+    InviteRequestStore, MediaStore, MediaVerdict, MembershipStore, NotificationStore, Notifier,
+    NsfwScanner, PostStore, PostVoteStore, ProposalStore, RecommendFeed, RefreshRecommendations,
+    ReportStore, RuleStore, SensitiveCaseStore, SettingsStore, SimilarityIndex, TrialCommentStore,
+    TrialStore, UserStore, VoteStore,
 };
 use crate::{
     AcceptInviteError, ApproveInviteError, AuthenticateError, CanPostError, CastJuryVoteError,
-    CastVoteError, CloseProposalError, CreatePostError, EnrollPublicKeyError,
+    CastVoteError, CloseProposalError, CommentOnTrialError, CreatePostError, EnrollPublicKeyError,
     EnsureBarredAccountError, FoundDemosError, MemberActionError, OpenProposalError, OpenTrialError,
     RegisterAccountError, RequestInviteError, Result, SensitiveReviewError, SetFeedPagingError,
     SettleTrialError, SignFoundingError, StartFoundingError, StoreError, VerifyActionError,
@@ -113,6 +115,9 @@ pub struct Services {
     /// Platform-wide sensitive-content review cases (the extra-demos review queue).
     pub sensitive_cases: Arc<dyn SensitiveCaseStore>,
     pub trials: Arc<dyn TrialStore>,
+    pub trial_comments: Arc<dyn TrialCommentStore>,
+    /// Node-local in-app notifications (mentions + jury summons). Never federated.
+    pub notifications: Arc<dyn NotificationStore>,
     pub post_votes: Arc<dyn PostVoteStore>,
     pub comment_votes: Arc<dyn CommentVoteStore>,
     pub media: Arc<dyn MediaStore>,
@@ -260,6 +265,117 @@ impl Services {
             .collect();
         comments.sort_by(|a, b| b.created_at.0.cmp(&a.created_at.0));
         Ok(comments)
+    }
+
+    // --- personal blocking ------------------------------------------------
+    // A block is a purely personal mute: it hides the blocked account's content
+    // from the blocker's own feeds and threads and has no governance effect (a
+    // sanction is the community-moderation counterpart). One-directional and
+    // unbounded — you may block as many accounts as you like.
+
+    /// Block `target` for `blocker`. Blocking yourself is a no-op. Idempotent.
+    pub async fn block_user(&self, blocker: UserId, target: UserId) -> Result<()> {
+        if blocker == target {
+            return Ok(());
+        }
+        self.users.block_user(blocker, target).await
+    }
+
+    /// Lift `blocker`'s block on `target`. Idempotent.
+    pub async fn unblock_user(&self, blocker: UserId, target: UserId) -> Result<()> {
+        self.users.unblock_user(blocker, target).await
+    }
+
+    /// The accounts `viewer` has blocked. Empty if the account is gone. Feeds and
+    /// threads filter their content against this set so a blocked author never
+    /// reaches the viewer.
+    pub async fn blocked_by(&self, viewer: UserId) -> Result<Vec<UserId>> {
+        Ok(self
+            .users
+            .get(viewer)
+            .await?
+            .map(|u| u.blocked)
+            .unwrap_or_default())
+    }
+
+    /// Whether `blocker` currently blocks `target`.
+    pub async fn is_blocking(&self, blocker: UserId, target: UserId) -> Result<bool> {
+        Ok(self
+            .users
+            .get(blocker)
+            .await?
+            .is_some_and(|u| u.blocks(target)))
+    }
+
+    // --- notifications ----------------------------------------------------
+    // Node-local, opt-in-per-kind pings: a member is notified when they are named
+    // (`@handle`) in content or summoned to a jury. Generated at write time on
+    // this node; never federated.
+
+    /// This member's notifications, newest first.
+    pub async fn notifications(&self, user: UserId) -> Result<Vec<Notification>> {
+        self.notifications.list_for(user).await
+    }
+
+    /// How many unseen notifications this member has — the toolbar badge count.
+    pub async fn unread_notification_count(&self, user: UserId) -> Result<u64> {
+        self.notifications.unread_count(user).await
+    }
+
+    /// Mark all this member's notifications seen (they opened their list).
+    pub async fn mark_notifications_seen(&self, user: UserId) -> Result<()> {
+        self.notifications.mark_all_seen(user).await
+    }
+
+    /// Save which notification kinds this member wants.
+    pub async fn set_alert_prefs(
+        &self,
+        user: UserId,
+        allows_mention_alerts: bool,
+        allows_jury_alerts: bool,
+        allows_trial_comment_alerts: bool,
+    ) -> Result<()> {
+        self.users
+            .set_alert_prefs(
+                user,
+                allows_mention_alerts,
+                allows_jury_alerts,
+                allows_trial_comment_alerts,
+            )
+            .await
+    }
+
+    /// Notify every account named as `@handle` in `text` that `author` mentioned
+    /// them — skipping the author themselves, unknown handles, and anyone who has
+    /// opted out of mention alerts. Best-effort: a mention notification never
+    /// blocks the post/comment it rode in on, so this is called after the write
+    /// succeeds and its own errors propagate only as a failed notification.
+    async fn notify_mentions(
+        &self,
+        author: UserId,
+        text: &str,
+        post: PostId,
+        comment: Option<CommentId>,
+    ) -> Result<()> {
+        let now = self.clock.now();
+        for handle in mentions(text) {
+            if let Some(user) = self.users.by_handle(&handle).await? {
+                if user.id != author && user.allows_mention_alerts {
+                    self.notifications
+                        .push(
+                            user.id,
+                            NotificationKind::Mention {
+                                post,
+                                comment,
+                                by: author,
+                            },
+                            now,
+                        )
+                        .await?;
+                }
+            }
+        }
+        Ok(())
     }
 
     // --- invitation-only access -------------------------------------------
@@ -565,12 +681,25 @@ impl Services {
         slug: &str,
         name: &str,
     ) -> Result<Demos, FoundDemosError> {
+        self.found_demos_tagged(founder, slug, name, Vec::new()).await
+    }
+
+    /// [`found_demos`](Self::found_demos) with founder-chosen topic `tags` (already
+    /// normalized). The petition-driven path founds through here so a community's
+    /// tags — captured when the petition opened — land on the demos it becomes.
+    async fn found_demos_tagged(
+        &self,
+        founder: UserId,
+        slug: &str,
+        name: &str,
+        tags: Vec<String>,
+    ) -> Result<Demos, FoundDemosError> {
         self.ensure_not_barred(founder).await?;
         if self.demoi.by_slug(slug).await?.is_some() {
             return Err(StoreError::AlreadyExists.into());
         }
         let now = self.clock.now();
-        let demos = self.demoi.create(slug, name, founder, now).await?;
+        let demos = self.demoi.create(slug, name, founder, tags, now).await?;
 
         let mut m = Membership::joined(founder, demos.id, now);
         m.tier = Tier::Voter;
@@ -590,6 +719,18 @@ impl Services {
         founder: UserId,
         name: &str,
     ) -> Result<FoundingPetition, StartFoundingError> {
+        self.start_founding_tagged(founder, name, Vec::new()).await
+    }
+
+    /// [`start_founding`](Self::start_founding) with founder-chosen topic `tags`
+    /// (already normalized by the caller, as post tags are). They are carried on
+    /// the petition until the community is founded, then applied to the demos.
+    pub async fn start_founding_tagged(
+        &self,
+        founder: UserId,
+        name: &str,
+        tags: Vec<String>,
+    ) -> Result<FoundingPetition, StartFoundingError> {
         self.ensure_not_barred(founder).await?;
         let name = name.trim();
         let slug = slugify(name);
@@ -606,7 +747,7 @@ impl Services {
         }
         Ok(self
             .foundings
-            .create(&slug, name, founder, self.clock.now())
+            .create(&slug, name, founder, tags, self.clock.now())
             .await?)
     }
 
@@ -645,9 +786,15 @@ impl Services {
         }
 
         // Quorum reached — found the demos (which enfranchises the founder), then
-        // enfranchise every co-signer as a founding voter too.
+        // enfranchise every co-signer as a founding voter too. The founder's tags,
+        // captured when the petition opened, are applied to the new community here.
         let demos = self
-            .found_demos(petition.founder, &petition.slug, &petition.name)
+            .found_demos_tagged(
+                petition.founder,
+                &petition.slug,
+                &petition.name,
+                petition.tags.clone(),
+            )
             .await?;
         let now = self.clock.now();
         for signer in &petition.sign_offs {
@@ -758,7 +905,7 @@ impl Services {
         // retaliatory proposals (Ban / Recall / AmendCriteria) against their
         // accuser. Mirrors the same gate on cast_vote / open_trial / the content
         // paths' `require_unsanctioned_member`.
-        if membership.sanctioned {
+        if membership.is_sanctioned(self.clock.now()) {
             return Err(OpenProposalError::Sanctioned);
         }
 
@@ -825,7 +972,7 @@ impl Services {
         // A sanction disqualifies from the franchise, so a convicted voter may not
         // cast a governance ballot — even though they keep the `Voter` tier until
         // they re-qualify. Mirrors the content paths' `require_unsanctioned_member`.
-        if membership.sanctioned {
+        if membership.is_sanctioned(self.clock.now()) {
             return Err(CastVoteError::Sanctioned);
         }
         // The ballot must be signed by the *acting user*, verified against the
@@ -937,13 +1084,31 @@ impl Services {
                     .update_criteria(p.demos_id, proposed.clone())
                     .await?;
             }
-            ProposalKind::AddRule { text } => {
+            ProposalKind::AddRule {
+                text,
+                sanction_days,
+            } => {
+                // Clamp the voted term to the community ceiling now, at enactment,
+                // so a stored rule never carries a term the demos hasn't sanctioned
+                // (`0` = "inherit the ceiling", left as-is). Convictions clamp again
+                // to the live ceiling, so lowering the ceiling later still binds.
+                let capped = match self.demoi.get(p.demos_id).await? {
+                    Some(d) if *sanction_days != 0 => d.cap_sanction_days(*sanction_days),
+                    _ => *sanction_days,
+                };
                 self.rules
-                    .create(p.demos_id, text, self.clock.now())
+                    .create(p.demos_id, text, capped, self.clock.now())
                     .await?;
             }
             ProposalKind::RemoveRule { rule } => {
                 self.rules.set_active(*rule, false).await?;
+            }
+            ProposalKind::SetMaxSanction { days } => {
+                // Bound the community's own ceiling by the platform cap — no demos
+                // can vote a permaban. Stored clamped; every downstream term reads
+                // it back through `Demos::ban_ceiling_days`.
+                let capped = (*days).min(MAX_SANCTION_DAYS);
+                self.demoi.set_max_sanction(p.demos_id, capped).await?;
             }
             ProposalKind::SetNsfwPolicy { allows_nsfw } => {
                 self.demoi.set_allows_nsfw(p.demos_id, *allows_nsfw).await?;
@@ -973,7 +1138,15 @@ impl Services {
                 // and have nothing happen: the electorate's decision was silently
                 // ignored.
                 if let Some(mut m) = self.memberships.get(*user, p.demos_id).await? {
-                    m.sanctioned = true;
+                    // A direct ban proposal isn't tied to a specific rule, so it
+                    // runs to the community's own ceiling — which `sanction_for`
+                    // still caps at MAX_SANCTION_DAYS (18 years), so a vote can never
+                    // permaban.
+                    let term = match self.demoi.get(p.demos_id).await? {
+                        Some(d) => d.ban_ceiling_days(),
+                        None => MAX_SANCTION_DAYS,
+                    };
+                    m.sanction_for(self.clock.now(), term);
                     self.memberships.upsert(m).await?;
                 }
             }
@@ -1017,6 +1190,9 @@ impl Services {
             .await?;
         self.run_bot_check(author, demos, now).await?;
         post.is_nsfw = self.run_nsfw_check(&post, now).await?;
+        // Ping anyone named in the title or body (their opt-in is checked inside).
+        self.notify_mentions(author, &format!("{title} {body}"), post.id, None)
+            .await?;
         Ok(post)
     }
 
@@ -1254,9 +1430,12 @@ impl Services {
 
     /// Full-text-ish search over posts (title / body / tags) and, site-wide,
     /// communities (name / slug). A post matches if **any** query token is a
-    /// substring of its title or body, or equals one of its tags; an optional
-    /// `tag` filter additionally requires that exact tag. Removed posts are
-    /// excluded. Pure string matching — no index, which suits the small stores.
+    /// substring of its title or body; an optional `tag` filter additionally
+    /// requires that exact tag. When a `tag` is given the candidate set comes
+    /// from the store's pipe-wrapped tag index ([`PostStore::by_tag`] /
+    /// [`DemosStore::by_tag`]) — an indexed lookup rather than a scan of every
+    /// row — and any query tokens then narrow those matches. Removed and
+    /// pending-review posts are excluded.
     pub async fn search(
         &self,
         query: &str,
@@ -1264,24 +1443,42 @@ impl Services {
         tag: Option<&str>,
     ) -> Result<SearchResults> {
         let tokens: Vec<String> = query.split_whitespace().map(|t| t.to_lowercase()).collect();
-        let tag = tag.map(|t| t.to_lowercase());
+        // Normalize the tag filter the same way stored tags are, so it matches the
+        // index exactly and can never carry a `LIKE` metacharacter into the store.
+        let tag = tag.and_then(|t| normalize_tags(t).into_iter().next());
 
-        let candidates = match scope {
-            SearchScope::All => self.posts.list_all().await?,
-            SearchScope::Demos(id) => self.posts.list(id).await?,
+        // With a tag filter, fetch the tagged rows straight from the index; without
+        // one, fall back to the full candidate list the tokens then filter.
+        let candidates = match (&tag, scope) {
+            (Some(t), SearchScope::All) => self.posts.by_tag(None, t).await?,
+            (Some(t), SearchScope::Demos(id)) => self.posts.by_tag(Some(id), t).await?,
+            (None, SearchScope::All) => self.posts.list_all().await?,
+            (None, SearchScope::Demos(id)) => self.posts.list(id).await?,
         };
         let posts = candidates
             .into_iter()
             .filter(|p| !p.removed && !p.pending_review)
-            .filter(|p| {
-                tag.as_ref()
-                    .map_or(true, |t| p.tags.iter().any(|pt| pt == t))
-            })
             .filter(|p| tokens.is_empty() || tokens.iter().any(|tok| post_matches(p, tok)))
             .collect();
 
-        // Communities are only searched in the site-wide scope.
-        let communities = if matches!(scope, SearchScope::All) && !tokens.is_empty() {
+        // Communities are only searched in the site-wide scope. A tag filter looks
+        // them up by the same index; otherwise they match on name/slug tokens.
+        let communities = if !matches!(scope, SearchScope::All) {
+            Vec::new()
+        } else if let Some(t) = &tag {
+            self.demoi
+                .by_tag(t)
+                .await?
+                .into_iter()
+                .filter(|d| {
+                    tokens.is_empty() || {
+                        let name = d.name.to_lowercase();
+                        let slug = d.slug.to_lowercase();
+                        tokens.iter().any(|tok| name.contains(tok) || slug.contains(tok))
+                    }
+                })
+                .collect()
+        } else if !tokens.is_empty() {
             self.demoi
                 .list()
                 .await?
@@ -1323,6 +1520,9 @@ impl Services {
             .await?;
         self.recompute_popularity(author, post.demos_id).await?;
         self.run_bot_check(author, post.demos_id, now).await?;
+        // Ping anyone named in the reply (their opt-in is checked inside).
+        self.notify_mentions(author, body, post_id, Some(comment.id))
+            .await?;
         Ok(comment)
     }
 
@@ -1680,7 +1880,7 @@ impl Services {
             .get(caller, report.demos_id)
             .await?
             .ok_or(OpenTrialError::NotAVoter)?;
-        if !membership.is_voter() || membership.sanctioned {
+        if !membership.is_voter() || membership.is_sanctioned(self.clock.now()) {
             return Err(OpenTrialError::NotAVoter);
         }
         let accused = self.resolve_accused(&report).await?;
@@ -1700,7 +1900,7 @@ impl Services {
             .members(report.demos_id)
             .await?
             .into_iter()
-            .filter(|m| m.is_franchised())
+            .filter(|m| m.is_franchised(self.clock.now()))
             .collect();
 
         // Comments are lower-stakes than posts; a user-level report (e.g. a bot)
@@ -1750,7 +1950,113 @@ impl Services {
             .await?;
         report.status = ReportStatus::OnTrial(trial.id);
         self.reports.update(&report).await?;
+        // Summon each empanelled juror who wants jury alerts to come and vote.
+        for juror in &trial.jurors {
+            if let Some(u) = self.users.get(*juror).await? {
+                if u.allows_jury_alerts {
+                    self.notifications
+                        .push(
+                            *juror,
+                            NotificationKind::JurySummons {
+                                trial: trial.id,
+                                demos: trial.demos_id,
+                            },
+                            now,
+                        )
+                        .await?;
+                }
+            }
+        }
         Ok(trial)
+    }
+
+    /// Every comment on a trial, oldest first — the public gallery discussion.
+    pub async fn trial_comments(&self, trial: TrialId) -> Result<Vec<TrialComment>> {
+        self.trial_comments.list_for_trial(trial).await
+    }
+
+    /// A voter comments on a trial. Any enfranchised voter of the trial's demos may
+    /// speak — juror or not — so the case is argued in the open. The comment does
+    /// not touch the verdict; it is context the electorate (and any watching juror)
+    /// can weigh. Every party already in the case — the accused, the reporters, the
+    /// jurors, and anyone who has already commented — is pinged (unless they have
+    /// opted out of trial-comment alerts), so a running argument reaches the people
+    /// it concerns without anyone having to poll the page.
+    pub async fn comment_on_trial(
+        &self,
+        trial_id: TrialId,
+        author: UserId,
+        body: &str,
+    ) -> Result<TrialComment, CommentOnTrialError> {
+        let body = body.trim();
+        if body.is_empty() {
+            return Err(CommentOnTrialError::Empty);
+        }
+        let trial = self.trials.get(trial_id).await?.ok_or(StoreError::NotFound)?;
+        // Commenting is a franchise right: only an enfranchised (unsanctioned) voter
+        // of this demos may speak in its gallery. The accused, if not a voter, can
+        // still read the public record but not argue here.
+        let membership = self
+            .memberships
+            .get(author, trial.demos_id)
+            .await?
+            .ok_or(CommentOnTrialError::NotAVoter)?;
+        if !membership.is_franchised(self.clock.now()) {
+            return Err(CommentOnTrialError::NotAVoter);
+        }
+        let now = self.clock.now();
+        let comment = self
+            .trial_comments
+            .add(trial_id, author, body.to_string(), now)
+            .await?;
+        self.notify_trial_comment(&trial, author, now).await?;
+        Ok(comment)
+    }
+
+    /// Ping everyone party to `trial` — the accused, its reporters, its jurors, and
+    /// anyone who has already commented — that a new comment landed, skipping the
+    /// commenter and anyone who has opted out of trial-comment alerts. Best-effort,
+    /// mirroring [`Self::notify_mentions`]: called after the comment is stored.
+    async fn notify_trial_comment(
+        &self,
+        trial: &Trial,
+        author: UserId,
+        now: Timestamp,
+    ) -> Result<()> {
+        // Build the audience: accused + jurors + reporters + prior commenters.
+        let mut audience: Vec<UserId> = Vec::new();
+        audience.push(trial.accused);
+        audience.extend(trial.jurors.iter().copied());
+        if let Some(report) = self.reports.get(trial.report_id).await? {
+            audience.extend(report.flags.iter().filter_map(|f| f.reporter));
+        }
+        for c in self.trial_comments.list_for_trial(trial.id).await? {
+            audience.push(c.author);
+        }
+        // Dedup and drop the commenter — never notify yourself of your own comment.
+        audience.sort_by_key(|u| u.0);
+        audience.dedup();
+        for recipient in audience {
+            if recipient == author {
+                continue;
+            }
+            if let Some(u) = self.users.get(recipient).await? {
+                if u.allows_trial_comment_alerts {
+                    self.notifications
+                        .push(
+                            recipient,
+                            NotificationKind::TrialComment {
+                                trial: trial.id,
+                                demos: trial.demos_id,
+                                by: author,
+                            },
+                            now,
+                        )
+                        .await?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// A juror votes. Returns the (possibly now-decided) verdict; a decisive
@@ -1774,7 +2080,7 @@ impl Services {
         // verdict. A juror who has since left the community (no membership) keeps
         // the seat they were drawn into.
         if let Some(m) = self.memberships.get(juror, trial.demos_id).await? {
-            if m.sanctioned {
+            if m.is_sanctioned(self.clock.now()) {
                 return Err(CastJuryVoteError::Sanctioned);
             }
         }
@@ -1821,7 +2127,11 @@ impl Services {
             Verdict::Guilty => {
                 report.status = ReportStatus::Upheld;
                 if let Some(mut m) = self.memberships.get(trial.accused, trial.demos_id).await? {
-                    m.sanctioned = true;
+                    // The ban's length is tied to the rule(s) the case cited — the
+                    // term the voters fixed for that rule ahead of the trial — not a
+                    // flat maximum. `sanction_for` still caps at MAX_SANCTION_DAYS.
+                    let term = self.ban_term_for_report(&report).await?;
+                    m.sanction_for(self.clock.now(), term);
                     self.memberships.upsert(m).await?;
                 }
                 match report.target {
@@ -1857,6 +2167,45 @@ impl Services {
             .sum())
     }
 
+    /// The ban term (days) a conviction on the report behind `trial` would carry,
+    /// for showing jurors the stakes before they vote. `None` if the report is
+    /// gone. See [`Self::ban_term_for_report`] for how it's derived.
+    pub async fn proposed_ban_term(&self, report_id: ReportId) -> Result<Option<u32>> {
+        match self.reports.get(report_id).await? {
+            Some(report) => Ok(Some(self.ban_term_for_report(&report).await?)),
+            None => Ok(None),
+        }
+    }
+
+    /// The ban term (days) a conviction on `report` carries: the most severe of
+    /// the rule terms the case cited, each read against the community's live
+    /// ceiling. A case that cites no specific rule (a bot/NSFW flag, or a bare
+    /// rule-break) falls back to the community ceiling. Never exceeds it — and
+    /// `Membership::sanction_for` caps the result at the 18-year platform maximum.
+    async fn ban_term_for_report(&self, report: &Report) -> Result<u32> {
+        let ceiling = match self.demoi.get(report.demos_id).await? {
+            Some(d) => d.ban_ceiling_days(),
+            None => MAX_SANCTION_DAYS,
+        };
+        // The distinct rules named across the case's flags.
+        let cited: Vec<RuleId> = report
+            .flags
+            .iter()
+            .filter_map(|f| match f.reason {
+                ReportReason::RuleBreak { rule: Some(id) } => Some(id),
+                _ => None,
+            })
+            .collect();
+        let mut term = 0u32;
+        for id in cited {
+            if let Some(rule) = self.rules.get(id).await? {
+                term = term.max(rule.term_days(ceiling));
+            }
+        }
+        // No cited rule carried a resolvable term → the community ceiling governs.
+        Ok(if term == 0 { ceiling } else { term })
+    }
+
     async fn resolve_accused(&self, report: &Report) -> Result<UserId> {
         match report.target {
             ReportTarget::User(u) => Ok(u),
@@ -1880,7 +2229,7 @@ impl Services {
             .get(user, demos)
             .await?
             .ok_or(StoreError::NotFound)?;
-        if m.sanctioned {
+        if m.is_sanctioned(self.clock.now()) {
             return Err(MemberActionError::Sanctioned);
         }
         Ok(m)
@@ -1892,7 +2241,7 @@ impl Services {
     pub async fn can_post(&self, user: UserId, demos: DemosId) -> Result<bool, CanPostError> {
         let d = self.demoi.get(demos).await?.ok_or(StoreError::NotFound)?;
         let m = self.memberships.get(user, demos).await?;
-        Ok(posting_allowed(d.posting_policy, m.as_ref()))
+        Ok(posting_allowed(d.posting_policy, m.as_ref(), self.clock.now()))
     }
 
     /// Like [`can_post`](Self::can_post) but returns a policy-specific error the
@@ -1900,11 +2249,11 @@ impl Services {
     async fn require_can_post(&self, user: UserId, demos: DemosId) -> Result<(), CanPostError> {
         let d = self.demoi.get(demos).await?.ok_or(StoreError::NotFound)?;
         let m = self.memberships.get(user, demos).await?;
-        if posting_allowed(d.posting_policy, m.as_ref()) {
+        if posting_allowed(d.posting_policy, m.as_ref(), self.clock.now()) {
             return Ok(());
         }
         // A sanction is its own distinct error (blocks posting under any policy).
-        if m.as_ref().is_some_and(|m| m.sanctioned) {
+        if m.as_ref().is_some_and(|m| m.is_sanctioned(self.clock.now())) {
             return Err(CanPostError::Sanctioned);
         }
         let msg = match d.posting_policy {
@@ -1961,8 +2310,8 @@ impl Services {
 /// Pure decision: does this membership (if any) satisfy a community's posting
 /// policy? A sanctioned member is always blocked; a non-member (`None`) passes
 /// only under [`PostingPolicy::Open`].
-fn posting_allowed(policy: PostingPolicy, membership: Option<&Membership>) -> bool {
-    if membership.is_some_and(|m| m.sanctioned) {
+fn posting_allowed(policy: PostingPolicy, membership: Option<&Membership>, now: Timestamp) -> bool {
+    if membership.is_some_and(|m| m.is_sanctioned(now)) {
         return false;
     }
     match policy {

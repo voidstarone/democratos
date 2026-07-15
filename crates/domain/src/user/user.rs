@@ -60,6 +60,31 @@ pub struct User {
     /// datasets loadable. See [`crate::sensitive`].
     #[serde(default)]
     pub is_sensitive_reviewer: bool,
+    /// Accounts this user has personally blocked. Purely one-directional and
+    /// unbounded — a member may block as many others as they like, and the block
+    /// hides the blocked account's content from *this* viewer only (it does not
+    /// touch the blocked user's own view). Distinct from a demos sanction, which is
+    /// community moderation; a block is a personal mute with no governance effect.
+    /// `#[serde(default)]` keeps pre-block datasets loadable (as an empty set).
+    #[serde(default)]
+    pub blocked: Vec<UserId>,
+    /// Whether the account wants a notification when it is named (`@handle`) in a
+    /// post or comment. Opt-out: defaults on. `#[serde(default = "..")]` keeps
+    /// pre-notification datasets loadable as opted-in.
+    #[serde(default = "alerts_default")]
+    pub allows_mention_alerts: bool,
+    /// Whether the account wants a notification when it is summoned to a jury.
+    /// Opt-out: defaults on.
+    #[serde(default = "alerts_default")]
+    pub allows_jury_alerts: bool,
+    /// Whether the account wants a notification when a new comment is posted on a
+    /// trial it is party to or has spoken in. Opt-out: defaults on.
+    #[serde(default = "alerts_default")]
+    pub allows_trial_comment_alerts: bool,
+}
+
+fn alerts_default() -> bool {
+    true
 }
 
 impl User {
@@ -77,6 +102,10 @@ impl User {
             feed_paging: FeedPaging::Auto,
             is_franchise_barred: false,
             is_sensitive_reviewer: false,
+            blocked: Vec::new(),
+            allows_mention_alerts: true,
+            allows_jury_alerts: true,
+            allows_trial_comment_alerts: true,
         }
     }
 
@@ -99,6 +128,10 @@ impl User {
             feed_paging: FeedPaging::Auto,
             is_franchise_barred: false,
             is_sensitive_reviewer: false,
+            blocked: Vec::new(),
+            allows_mention_alerts: true,
+            allows_jury_alerts: true,
+            allows_trial_comment_alerts: true,
         }
     }
 
@@ -113,5 +146,73 @@ impl User {
     /// Whole days since the account was created.
     pub fn account_age_days(&self, now: Timestamp) -> i64 {
         now.days_since(self.created_at)
+    }
+
+    /// Whether this account has personally blocked `other`. A no-op for one's own
+    /// id — you never block yourself (see [`block`](Self::block)).
+    pub fn blocks(&self, other: UserId) -> bool {
+        self.blocked.contains(&other)
+    }
+
+    /// Block `other` (idempotent, and unbounded — there is no cap on how many
+    /// accounts one may block). Blocking yourself is silently ignored.
+    pub fn block(&mut self, other: UserId) {
+        if other != self.id && !self.blocked.contains(&other) {
+            self.blocked.push(other);
+        }
+    }
+
+    /// Lift a block on `other` (idempotent).
+    pub fn unblock(&mut self, other: UserId) {
+        self.blocked.retain(|&b| b != other);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn account(id: u64) -> User {
+        User::new(UserId(id), format!("u{id}"), Timestamp(0))
+    }
+
+    #[test]
+    fn blocking_is_one_directional_and_idempotent() {
+        let mut alice = account(1);
+        alice.block(UserId(2));
+        alice.block(UserId(2)); // repeat is a no-op
+        assert!(alice.blocks(UserId(2)));
+        assert_eq!(alice.blocked, vec![UserId(2)]);
+        // The block is on Alice's record only — it says nothing about who blocks her.
+        assert!(!account(2).blocks(UserId(1)));
+    }
+
+    #[test]
+    fn you_cannot_block_yourself() {
+        let mut alice = account(1);
+        alice.block(UserId(1));
+        assert!(!alice.blocks(UserId(1)));
+        assert!(alice.blocked.is_empty());
+    }
+
+    #[test]
+    fn unblocking_lifts_the_block() {
+        let mut alice = account(1);
+        alice.block(UserId(2));
+        alice.block(UserId(3));
+        alice.unblock(UserId(2));
+        assert!(!alice.blocks(UserId(2)));
+        assert!(alice.blocks(UserId(3)));
+        alice.unblock(UserId(2)); // idempotent
+        alice.unblock(UserId(99)); // never-blocked is a no-op
+    }
+
+    #[test]
+    fn blocking_is_unbounded() {
+        let mut alice = account(1);
+        for id in 2..1_000 {
+            alice.block(UserId(id));
+        }
+        assert_eq!(alice.blocked.len(), 998);
     }
 }

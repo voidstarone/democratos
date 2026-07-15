@@ -302,7 +302,7 @@ pub async fn dispatch(
             let u = user(services, &proposer).await?;
             let d = demos(services, &slug).await?;
             let p = services
-                .open_proposal(u.id, d.id, ProposalKind::AddRule { text })
+                .open_proposal(u.id, d.id, ProposalKind::AddRule { text, sanction_days: 0 })
                 .await?;
             println!("opened rule proposal #{} in d/{}", p.id, d.slug);
         }

@@ -17,6 +17,12 @@ pub struct FoundingPetition {
     /// Distinct co-signers, in the order they signed. Never includes the founder.
     pub sign_offs: Vec<UserId>,
     pub created_at: Timestamp,
+    /// The founder's topic tags for the community, carried on the petition so they
+    /// can be applied to the [`crate::Demos`] the moment quorum founds it (the
+    /// founder is not present at that instant). Normalized/deduped; `#[serde(default)]`
+    /// gives older petitions an empty set.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 impl FoundingPetition {

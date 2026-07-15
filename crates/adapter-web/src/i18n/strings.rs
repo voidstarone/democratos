@@ -35,6 +35,8 @@ pub struct Strings {
     pub signin_to_found: &'static str,
     /// Live preview label on the found page: "Address: d/<slug>".
     pub found_slug_hint: &'static str,
+    /// Hint under the optional tags field on the found page.
+    pub found_tags_hint: &'static str,
     /// Submit button on the found page (opens a petition, not a demos).
     pub founding_start_button: &'static str,
     /// Note under the found form explaining the nine-sign-off requirement.
@@ -102,6 +104,32 @@ pub struct Strings {
     pub no_rules: &'static str,
     pub propose_rule_heading: &'static str,
     pub rule_text_placeholder: &'static str,
+    pub rule_term_label: &'static str,
+    pub rule_term_hint: &'static str,
+    pub ban_ceiling_heading: &'static str,
+    pub ban_ceiling_note: &'static str,
+    pub ban_ceiling_label: &'static str,
+    /// Shown against a rule in the rules list, e.g. "ban: 30 days".
+    pub rule_ban_prefix: &'static str,
+    /// Shown for a rule that inherits the community ceiling.
+    pub rule_ban_inherits: &'static str,
+    pub case_log_heading: &'static str,
+    pub case_log_intro: &'static str,
+    pub case_log_empty: &'static str,
+    pub case_ongoing: &'static str,
+    pub case_log_link: &'static str,
+    pub trial_charges_heading: &'static str,
+    pub trial_proposed_term: &'static str,
+    pub trial_cited_rule: &'static str,
+    /// Trial gallery (public discussion of a case).
+    pub trial_gallery_heading: &'static str,
+    pub trial_gallery_empty: &'static str,
+    pub trial_comment_placeholder: &'static str,
+    pub trial_comment_button: &'static str,
+    /// Shown in place of the comment box to a viewer who isn't a voter here.
+    pub trial_comment_voters_only: &'static str,
+    /// Marker for a flag filed automatically by a detector, not a member.
+    pub report_automatic: &'static str,
     pub propose_button: &'static str,
     // posts & comments
     pub posts_heading: &'static str,
@@ -185,6 +213,20 @@ pub struct Strings {
     pub profile_no_posts: &'static str,
     pub profile_no_comments: &'static str,
     pub profile_in_context: &'static str,
+    pub block_button: &'static str,
+    pub unblock_button: &'static str,
+    pub notifications_heading: &'static str,
+    pub notifications_empty: &'static str,
+    /// Tail of a mention line: "@alice <mentioned you>".
+    pub notif_mentioned_you: &'static str,
+    pub notif_jury_summons: &'static str,
+    pub notif_trial_comment: &'static str,
+    pub pref_alerts_heading: &'static str,
+    pub pref_alert_mentions: &'static str,
+    pub pref_alert_jury: &'static str,
+    pub pref_alert_trial_comments: &'static str,
+    pub blocked_notice: &'static str,
+    pub comment_blocked: &'static str,
     pub preferences_heading: &'static str,
     pub pref_saved: &'static str,
     pub pref_feed_heading: &'static str,

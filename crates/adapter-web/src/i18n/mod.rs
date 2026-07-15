@@ -14,6 +14,7 @@ pub mod phase;
 pub mod posting_policy_label;
 pub mod proposal_title;
 pub mod queued_note;
+pub mod rule_ban_term;
 pub mod status;
 pub mod strings;
 pub mod tier;

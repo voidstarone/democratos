@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Trial theater · Democratos{% endblock %}
+{% block head %}
+<style>
+  .tt-intro { color: var(--muted); max-width: 42rem; }
+  .tt-summary { display: flex; flex-wrap: wrap; gap: 1.2rem; align-items: baseline; }
+  .tt-links a { margin-right: 1rem; }
+  .cast { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  .cast th, .cast td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); }
+  .cast tr.current td { background: var(--accent-soft); }
+  .cast .role { color: var(--muted); font-size: .9rem; }
+  .cast form { margin: 0; }
+  .voted { color: var(--ok); font-weight: 600; }
+  .pending { color: var(--muted); }
+  .tt-legend { color: var(--muted); font-size: .92rem; max-width: 42rem; }
+  .tt-legend li { margin: .25rem 0; }
+</style>
+{% endblock %}
+{% block content %}
+<h1>Trial theater <span class="pill">dev</span></h1>
+<p class="tt-intro">
+  Seed a complete jury trial, then step into any seat to see and act on the case
+  from that side — the accused, the reporter, the jurors who decide, and a
+  bystander voter who isn't on the panel. "Act as" points this browser's session
+  at that account (scoped to the demo court, so it never touches a real member).
+</p>
+
+{% if !seeded %}
+<form method="post" action="/dev/trial/seed">
+  <button type="submit">Seed a trial</button>
+</form>
+{% else %}
+
+<div class="card">
+  <div class="tt-summary">
+    <span><strong>Accused:</strong> @{{ accused }}</span>
+    <span><strong>Verdict:</strong> {{ verdict }}</span>
+    <span><strong>Tally:</strong> {{ guilty }}/{{ need_guilty }} guilty · {{ not_guilty }} not guilty</span>
+  </div>
+  <p class="tt-links" style="margin:.6rem 0 0">
+    <a href="/trial/{{ trial_id }}">Open the trial →</a>
+    <a href="/post/{{ post_id }}">The offending post</a>
+    <a href="/d/{{ demos_slug }}">The community</a>
+  </p>
+</div>
+
+<h2>The cast</h2>
+<table class="cast">
+  <thead><tr><th>Seat</th><th>Handle</th><th></th><th></th></tr></thead>
+  <tbody>
+  {% for c in cast %}
+    <tr{% if c.is_current %} class="current"{% endif %}>
+      <td class="role">{{ c.role }}</td>
+      <td>@{{ c.handle }}{% if c.is_current %} <span class="pill">you</span>{% endif %}</td>
+      <td>
+        {% if c.is_juror %}
+          {% if c.has_voted %}<span class="voted">voted</span>{% else %}<span class="pending">not yet voted</span>{% endif %}
+        {% endif %}
+      </td>
+      <td>
+        <form method="post" action="/dev/trial/as">
+          <input type="hidden" name="id" value="{{ c.id }}">
+          <input type="hidden" name="next" value="/trial/{{ trial_id }}">
+          <button class="ghost">Act as & open trial</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<form method="post" action="/dev/trial/seed" style="margin:1rem 0">
+  <button class="ghost">Seed a fresh case</button>
+</form>
+
+<div class="tt-legend">
+  <p><strong>Walk it through:</strong></p>
+  <ul>
+    <li><strong>Accused</strong> — open the trial to read the charge sheet; open the post to see what's on trial. (They're never on their own jury.)</li>
+    <li><strong>Juror</strong> — act as each juror in turn and cast a verdict. Two guilty of three convicts (a 2/3 supermajority).</li>
+    <li><strong>Reporter</strong> — the voter who filed the case and empanelled the jury.</li>
+    <li><strong>Bystander</strong> — a community voter not on this panel; the trial page shows "you are not on this jury".</li>
+    <li>Once the panel convicts, act as the accused again — the sanction is applied and they can no longer post.</li>
+  </ul>
+</div>
+{% endif %}
+{% endblock %}

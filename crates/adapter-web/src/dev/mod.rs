@@ -17,6 +17,8 @@
 //! paints the floating switch bar and self-hides when [`accounts`](accounts::accounts) 404s.
 
 pub mod accounts;
+pub mod act_as;
+pub mod act_as_form;
 pub mod create;
 pub mod create_form;
 pub mod dev_cookie;
@@ -26,7 +28,11 @@ pub mod dev_session;
 pub mod dev_unlocked;
 pub mod login_as_handle;
 pub mod no_content_with_cookie;
+pub mod seed_trial;
+pub mod seed_trial_handler;
 pub mod switch;
 pub mod switch_form;
+pub mod trial_query;
+pub mod trial_theater;
 pub mod unlock;
 pub mod unlock_query;

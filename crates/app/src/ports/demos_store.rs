@@ -16,10 +16,15 @@ pub trait DemosStore: Send + Sync {
         slug: &str,
         name: &str,
         founder: UserId,
+        tags: Vec<String>,
         created_at: Timestamp,
     ) -> Result<Demos>;
     async fn get(&self, id: DemosId) -> Result<Option<Demos>>;
     async fn by_slug(&self, slug: &str) -> Result<Option<Demos>>;
+    /// Communities carrying the exact tag `tag`, newest first. Backed by the
+    /// pipe-wrapped tag index (`|tag1|tag2|`) so this is an indexed lookup, not a
+    /// scan of every community. `tag` must already be normalized (`[a-z0-9-]`).
+    async fn by_tag(&self, tag: &str) -> Result<Vec<Demos>>;
     async fn update_criteria(&self, id: DemosId, criteria: FranchiseCriteria) -> Result<()>;
     /// Set whether the demos permits NSFW content (changed by a passed
     /// `SetNsfwPolicy` proposal).
@@ -32,5 +37,8 @@ pub trait DemosStore: Send + Sync {
     async fn set_weighting_scope(&self, id: DemosId, scope: WeightingScope) -> Result<()>;
     /// Set who may post here (changed by `SetPostingPolicy`).
     async fn set_posting_policy(&self, id: DemosId, policy: PostingPolicy) -> Result<()>;
+    /// Set the community's ban ceiling in days (changed by `SetMaxSanction`).
+    /// Callers pass an already-clamped value; the store just records it.
+    async fn set_max_sanction(&self, id: DemosId, days: u32) -> Result<()>;
     async fn list(&self) -> Result<Vec<Demos>>;
 }

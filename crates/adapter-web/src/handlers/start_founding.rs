@@ -25,7 +25,12 @@ pub async fn start_founding(
     let Some(user) = current_user(&state, &headers).await else {
         return render_error(lang, None, "sign in first".to_string());
     };
-    match state.services.start_founding(user.id, &form.name).await {
+    let tags = domain::normalize_tags(&form.tags);
+    match state
+        .services
+        .start_founding_tagged(user.id, &form.name, tags)
+        .await
+    {
         Ok(p) => Redirect::to(&format!("/found/{}", p.id.0)).into_response(),
         Err(e) => render_error(lang, Some(user.handle), e.to_string()),
     }

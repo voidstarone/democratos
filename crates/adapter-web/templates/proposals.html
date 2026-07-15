@@ -44,7 +44,22 @@
   <div class="card gov-form">
     <form method="post" action="/d/{{ slug }}/rules" class="field">
       <input name="text" placeholder="{{ t.rule_text_placeholder }}" required>
+      <label>{{ t.rule_term_label }}
+        <input type="number" name="sanction_days" min="0" max="{{ max_sanction_days }}" value="0" style="width:6rem">
+      </label>
+      <p class="muted"><small>{{ t.rule_term_hint }} {{ max_sanction_days }}.</small></p>
       <div><button>{{ t.propose_button }}</button></div>
+    </form>
+  </div>
+
+  <h2>{{ t.ban_ceiling_heading }}</h2>
+  <div class="card gov-form">
+    <p class="muted"><small>{{ t.ban_ceiling_note }}</small></p>
+    <form method="post" action="/d/{{ slug }}/max-sanction" class="field">
+      <label>{{ t.ban_ceiling_label }}
+        <input type="number" name="days" min="1" max="{{ platform_max_sanction_days }}" value="{{ max_sanction_days }}" style="width:7rem">
+      </label>
+      <div><button>{{ t.open_button }}</button></div>
     </form>
   </div>
 

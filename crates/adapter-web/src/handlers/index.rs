@@ -18,6 +18,7 @@ use crate::handlers::paging_mode::paging_mode;
 use crate::handlers::post_row::post_row;
 use crate::handlers::render::render;
 use crate::handlers::resolve_lang::resolve_lang;
+use crate::handlers::viewer_blocks::viewer_blocks;
 use crate::handlers::wants_fragment::wants_fragment;
 use crate::i18n::phase::phase;
 use crate::views::demos_list_item::DemosListItem;
@@ -64,6 +65,10 @@ pub async fn index(
             items.push((item.post, item.community_slug, Some(item.score)));
         }
     }
+    // Drop anything by an account the viewer has blocked — before paging, so a
+    // blocked author never even consumes a slot on the page.
+    let blocked = viewer_blocks(&state, viewer_id).await;
+    items.retain(|(post, _, _)| !blocked.contains(&post.author));
     let (window, has_next) = paginate(items, page);
     let mut feed = Vec::new();
     for (post, slug, score) in window {

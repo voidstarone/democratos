@@ -12,12 +12,14 @@ use crate::Result;
 /// store only ever holds foundings still gathering sign-offs.
 #[async_trait]
 pub trait FoundingStore: Send + Sync {
-    /// Open a petition for `slug`/`name` on behalf of `founder`.
+    /// Open a petition for `slug`/`name` on behalf of `founder`, carrying the
+    /// founder's `tags` so they can be applied to the demos once it is founded.
     async fn create(
         &self,
         slug: &str,
         name: &str,
         founder: UserId,
+        tags: Vec<String>,
         created_at: Timestamp,
     ) -> Result<FoundingPetition>;
     async fn get(&self, id: FoundingId) -> Result<Option<FoundingPetition>>;

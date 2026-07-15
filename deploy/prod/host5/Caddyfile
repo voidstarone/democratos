@@ -1,0 +1,41 @@
+# Caddy on HOST .5 — terminates TLS for the public site AND the internal fabric
+# endpoints that live on this box. All certs come from Let's Encrypt via the
+# Cloudflare DNS-01 challenge (see the caddy/ image), so none of these names need
+# inbound :80/:443 for issuance — only demo.ratbum.com is actually router-exposed.
+
+{
+	email {$ACME_EMAIL}
+	# Solve every ACME challenge over DNS-01 with the Cloudflare API token, so the
+	# LAN-only names (n1/minio) can still get publicly-trusted certs.
+	acme_dns cloudflare {$CLOUDFLARE_API_TOKEN}
+}
+
+# ---- PUBLIC: the site ------------------------------------------------------
+# Reached from the internet via router 80/443 -> .5. Served from node1, which
+# keeps a full read replica of EVERY community (including those owned by node2 on
+# .4), so every read is answerable here. Writes that land on a non-owner node are
+# forwarded node-to-node over the federation net, never through this proxy.
+#
+# (To also load-balance reads onto node2 for availability, give node2 a web TLS
+# name on .4's Caddy — e.g. w2.ratbum.com -> node2:3000 — expose node1 the same
+# way as w1.ratbum.com, and change the upstreams below to
+# `https://w1.ratbum.com https://w2.ratbum.com`. Kept single-upstream here to
+# avoid mixing plaintext and TLS upstreams, which Caddy disallows.)
+demo.ratbum.com {
+	encode gzip
+	reverse_proxy node1:3000
+}
+
+# ---- LAN-only TLS: node1's federation feed ---------------------------------
+# node2 (.4) replicates node1's change feed as https://n1.ratbum.com. Publicly
+# trusted cert (peer client trusts only public roots); reachable only on the LAN.
+n1.ratbum.com {
+	reverse_proxy node1:7400
+}
+
+# ---- LAN-only TLS: the shared MinIO media bucket ---------------------------
+# Both nodes read/write media as https://minio.ratbum.com. Preserve the Host
+# header so S3 SigV4 (path-style) validates against the signed host.
+minio.ratbum.com {
+	reverse_proxy minio:9000
+}

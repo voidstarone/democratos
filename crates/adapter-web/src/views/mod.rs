@@ -4,6 +4,7 @@
 
 pub mod accept_invite_view;
 pub mod auth_mode;
+pub mod charge_view;
 pub mod comment_row;
 pub mod community_option;
 pub mod demos_feed_fragment_view;
@@ -16,7 +17,12 @@ pub mod founding_list_item;
 pub mod founding_view;
 pub mod index_view;
 pub mod invite_queue_item;
+pub mod case_log_view;
+pub mod case_row;
+pub mod cast_member;
 pub mod media_item;
+pub mod notification_row;
+pub mod notifications_view;
 pub mod pager;
 pub mod post_row;
 pub mod post_view;
@@ -39,4 +45,6 @@ pub mod sign_in_view;
 pub mod standing_view;
 pub mod submit_view;
 pub mod top_view;
+pub mod trial_comment_view;
+pub mod trial_theater_view;
 pub mod trial_view;

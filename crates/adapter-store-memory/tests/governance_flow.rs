@@ -30,6 +30,8 @@ fn build() -> (Services, Arc<MemoryStore>, Arc<FixedClock>) {
         settings: store.clone(),
         sensitive_cases: store.clone(),
         trials: store.clone(),
+        notifications: store.clone(),
+        trial_comments: store.clone(),
         post_votes: store.clone(),
         comment_votes: store.clone(),
         media: store.clone(),

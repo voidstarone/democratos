@@ -41,4 +41,19 @@ pub trait UserStore: Send + Sync {
     /// Opt the account in to (or out of) reviewing platform-wide sensitive content.
     /// Default off; deliberately not a demos tier.
     async fn set_sensitive_reviewer(&self, id: UserId, is_reviewer: bool) -> Result<()>;
+    /// Persist the account's notification opt-ins: whether it wants a ping when
+    /// mentioned (`@handle`), when summoned to a jury, and when a trial it is party
+    /// to gains a new comment.
+    async fn set_alert_prefs(
+        &self,
+        id: UserId,
+        allows_mention_alerts: bool,
+        allows_jury_alerts: bool,
+        allows_trial_comment_alerts: bool,
+    ) -> Result<()>;
+    /// Add `blocked` to `blocker`'s personal block set (idempotent). One-directional
+    /// and unbounded: it hides the blocked account's content from the blocker only.
+    async fn block_user(&self, blocker: UserId, blocked: UserId) -> Result<()>;
+    /// Remove `blocked` from `blocker`'s block set (idempotent).
+    async fn unblock_user(&self, blocker: UserId, blocked: UserId) -> Result<()>;
 }

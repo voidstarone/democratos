@@ -27,6 +27,11 @@ pub trait PostStore: Send + Sync {
     async fn set_pending_review(&self, id: PostId, pending: bool) -> Result<()>;
     async fn list(&self, demos: DemosId) -> Result<Vec<Post>>;
     async fn list_by_author(&self, demos: DemosId, author: UserId) -> Result<Vec<Post>>;
+    /// Posts carrying the exact tag `tag`, newest first, optionally narrowed to a
+    /// single community. Backed by the pipe-wrapped tag index (`|tag1|tag2|`) so
+    /// this is an indexed lookup rather than a scan-and-filter of every post.
+    /// `tag` must already be normalized (`[a-z0-9-]`).
+    async fn by_tag(&self, demos: Option<DemosId>, tag: &str) -> Result<Vec<Post>>;
     /// Every post across all communities. Backs site-wide search.
     async fn list_all(&self) -> Result<Vec<Post>>;
     /// Distinct demos this author has posted in — a cross-posting signal.

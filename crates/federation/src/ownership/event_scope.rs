@@ -96,6 +96,15 @@ pub fn event_scope(part: &SignedPart) -> EventScope {
             },
             None => EventScope::Indeterminate,
         },
+        // A trial's gallery comment carries no demos_id; like a ballot, its
+        // community is that of the trial it hangs on.
+        "trial_comments" => match id("trial_id") {
+            Some(t) => EventScope::ViaParent {
+                kind: ParentKind::Trial,
+                id: t,
+            },
+            None => EventScope::Indeterminate,
+        },
         _ => EventScope::Indeterminate,
     }
 }

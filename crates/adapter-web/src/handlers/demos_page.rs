@@ -18,6 +18,7 @@ use crate::handlers::post_row::post_row;
 use crate::handlers::render::render;
 use crate::handlers::render_error::render_error;
 use crate::handlers::resolve_lang::resolve_lang;
+use crate::handlers::viewer_blocks::viewer_blocks;
 use crate::handlers::wants_fragment::wants_fragment;
 use crate::i18n::lang::Lang;
 use crate::views::demos_feed_fragment_view::DemosFeedFragmentView;
@@ -82,7 +83,8 @@ async fn demos_feed_fragment(
             .unwrap_or(false),
         _ => false,
     };
-    let (window, has_next) = demos_posts_page(state, demos.id, page).await?;
+    let blocked = viewer_blocks(state, viewer_id).await;
+    let (window, has_next) = demos_posts_page(state, demos.id, page, &blocked).await?;
     let mut posts = Vec::new();
     for p in window {
         posts.push(post_row(state, &p, viewer_id, votable, None).await);
@@ -130,7 +132,7 @@ async fn build_demos_view(
             }),
             Some(m) if m.is_voter() => {
                 viewer_is_voter = true;
-                viewer_can_post = !m.sanctioned;
+                viewer_can_post = !m.is_sanctioned(now);
                 Some(StandingView {
                     joined: true,
                     tier: crate::i18n::tier::tier(lang, m.tier).to_string(),
@@ -142,7 +144,7 @@ async fn build_demos_view(
                 })
             }
             Some(m) => {
-                viewer_can_post = !m.sanctioned;
+                viewer_can_post = !m.is_sanctioned(now);
                 let elig = evaluate_eligibility(u, &m, &demos.criteria, now);
                 let eligible = elig.is_eligible();
                 let unmet = elig
@@ -185,13 +187,15 @@ async fn build_demos_view(
         .map(|r| RuleView {
             id: r.id.0,
             text: r.text,
+            ban_term: crate::i18n::rule_ban_term::rule_ban_term(lang, r.sanction_days),
         })
         .collect();
 
     // A member in good standing of this community may up/down vote its posts.
     let votable = viewer_can_post;
     let viewer_id = viewer.map(|u| u.id);
-    let (window, has_next) = demos_posts_page(state, demos.id, page).await?;
+    let blocked = viewer_blocks(state, viewer_id).await;
+    let (window, has_next) = demos_posts_page(state, demos.id, page, &blocked).await?;
     let mut posts = Vec::new();
     for p in window {
         posts.push(post_row(state, &p, viewer_id, votable, None).await);

@@ -8,15 +8,17 @@ use async_trait::async_trait;
 use app::{MediaError, Result, StoreError};
 use app::{
     CommentStore, CommentVoteStore, DemosStore, FoundingStore, InviteRequestStore, MediaStore,
-    MembershipStore, PostStore, PostVoteStore, ProposalStore, ReportStore, RuleStore,
-    SensitiveCaseStore, SettingsStore, TrialStore, UserStore, VoteStore,
+    MembershipStore, NotificationStore, PostStore, PostVoteStore, ProposalStore, ReportStore,
+    RuleStore, SensitiveCaseStore, SettingsStore, TrialCommentStore, TrialStore, UserStore,
+    VoteStore,
 };
 use domain::{
     Comment, CommentId, Demos, DemosId, FeedPaging, FoundingId, FoundingPetition, FranchiseCriteria,
-    InviteId, InviteRequest, JurySizing, Media, Membership, Post, PostId, PostingPolicy, Proposal,
-    ProposalId, ProposalKind, Report, ReportId, ReportReason, ReportStatus, ReportTarget, Rule,
-    RuleId, SensitiveCase, SensitiveCaseId, SensitiveCaseStatus, Tally, Tier, Timestamp, Trial,
-    TrialId, User, UserId, Verdict, VoteWeighting, WeightingScope,
+    InviteId, InviteRequest, JurySizing, Media, Membership, Notification, NotificationId,
+    NotificationKind, Post, PostId, PostingPolicy, Proposal, ProposalId, ProposalKind, Report,
+    ReportId, ReportReason, ReportStatus, ReportTarget, Rule, RuleId, SensitiveCase,
+    SensitiveCaseId, SensitiveCaseStatus, Tally, Tier, Timestamp, Trial, TrialComment,
+    TrialCommentId, TrialId, User, UserId, Verdict, VoteWeighting, WeightingScope,
 };
 
 use crate::comment_vote_rec::CommentVoteRec;
@@ -121,6 +123,47 @@ impl UserStore for MemoryStore {
             .find(|u| u.id == id)
             .ok_or(StoreError::NotFound)?;
         u.is_sensitive_reviewer = is_reviewer;
+        Ok(())
+    }
+
+    async fn block_user(&self, blocker: UserId, blocked: UserId) -> Result<()> {
+        let mut g = self.lock();
+        let u = g
+            .users
+            .iter_mut()
+            .find(|u| u.id == blocker)
+            .ok_or(StoreError::NotFound)?;
+        u.block(blocked);
+        Ok(())
+    }
+
+    async fn unblock_user(&self, blocker: UserId, blocked: UserId) -> Result<()> {
+        let mut g = self.lock();
+        let u = g
+            .users
+            .iter_mut()
+            .find(|u| u.id == blocker)
+            .ok_or(StoreError::NotFound)?;
+        u.unblock(blocked);
+        Ok(())
+    }
+
+    async fn set_alert_prefs(
+        &self,
+        id: UserId,
+        allows_mention_alerts: bool,
+        allows_jury_alerts: bool,
+        allows_trial_comment_alerts: bool,
+    ) -> Result<()> {
+        let mut g = self.lock();
+        let u = g
+            .users
+            .iter_mut()
+            .find(|u| u.id == id)
+            .ok_or(StoreError::NotFound)?;
+        u.allows_mention_alerts = allows_mention_alerts;
+        u.allows_jury_alerts = allows_jury_alerts;
+        u.allows_trial_comment_alerts = allows_trial_comment_alerts;
         Ok(())
     }
 
@@ -262,11 +305,13 @@ impl DemosStore for MemoryStore {
         slug: &str,
         name: &str,
         founder: UserId,
+        tags: Vec<String>,
         created_at: Timestamp,
     ) -> Result<Demos> {
         let mut g = self.lock();
         g.next_demos += 1;
-        let demos = Demos::new(DemosId(g.next_demos), slug, name, founder, created_at);
+        let demos =
+            Demos::new(DemosId(g.next_demos), slug, name, founder, created_at).with_tags(tags);
         g.demoi.push(demos.clone());
         Ok(demos)
     }
@@ -277,6 +322,19 @@ impl DemosStore for MemoryStore {
 
     async fn by_slug(&self, slug: &str) -> Result<Option<Demos>> {
         Ok(self.lock().demoi.iter().find(|d| d.slug == slug).cloned())
+    }
+
+    async fn by_tag(&self, tag: &str) -> Result<Vec<Demos>> {
+        // Exact-tag match, newest first (to mirror the Postgres ordering).
+        let mut out: Vec<Demos> = self
+            .lock()
+            .demoi
+            .iter()
+            .filter(|d| d.tags.iter().any(|t| t == tag))
+            .cloned()
+            .collect();
+        out.reverse();
+        Ok(out)
     }
 
     async fn update_criteria(&self, id: DemosId, criteria: FranchiseCriteria) -> Result<()> {
@@ -345,6 +403,17 @@ impl DemosStore for MemoryStore {
         Ok(())
     }
 
+    async fn set_max_sanction(&self, id: DemosId, days: u32) -> Result<()> {
+        let mut g = self.lock();
+        let d = g
+            .demoi
+            .iter_mut()
+            .find(|d| d.id == id)
+            .ok_or(StoreError::NotFound)?;
+        d.max_sanction_days = days;
+        Ok(())
+    }
+
     async fn list(&self) -> Result<Vec<Demos>> {
         Ok(self.lock().demoi.clone())
     }
@@ -357,6 +426,7 @@ impl FoundingStore for MemoryStore {
         slug: &str,
         name: &str,
         founder: UserId,
+        tags: Vec<String>,
         created_at: Timestamp,
     ) -> Result<FoundingPetition> {
         let mut g = self.lock();
@@ -368,6 +438,7 @@ impl FoundingStore for MemoryStore {
             founder,
             sign_offs: Vec::new(),
             created_at,
+            tags,
         };
         g.foundings.push(petition.clone());
         Ok(petition)
@@ -636,10 +707,16 @@ impl PostVoteStore for MemoryStore {
 
 #[async_trait]
 impl RuleStore for MemoryStore {
-    async fn create(&self, demos: DemosId, text: &str, at: Timestamp) -> Result<Rule> {
+    async fn create(
+        &self,
+        demos: DemosId,
+        text: &str,
+        sanction_days: u32,
+        at: Timestamp,
+    ) -> Result<Rule> {
         let mut g = self.lock();
         g.next_rule += 1;
-        let rule = Rule::new(RuleId(g.next_rule), demos, text, at);
+        let rule = Rule::new(RuleId(g.next_rule), demos, text, sanction_days, at);
         g.rules.push(rule.clone());
         Ok(rule)
     }
@@ -757,6 +834,20 @@ impl PostStore for MemoryStore {
 
     async fn list_all(&self) -> Result<Vec<Post>> {
         Ok(self.lock().posts.clone())
+    }
+
+    async fn by_tag(&self, demos: Option<DemosId>, tag: &str) -> Result<Vec<Post>> {
+        // Exact-tag match, newest first, optionally narrowed to one community.
+        let mut out: Vec<Post> = self
+            .lock()
+            .posts
+            .iter()
+            .filter(|p| demos.map_or(true, |d| p.demos_id == d))
+            .filter(|p| p.tags.iter().any(|t| t == tag))
+            .cloned()
+            .collect();
+        out.reverse();
+        Ok(out)
     }
 
     async fn distinct_demos_by_author(&self, author: UserId) -> Result<u64> {
@@ -1070,6 +1161,18 @@ impl TrialStore for MemoryStore {
             .collect())
     }
 
+    async fn list_for_demos(&self, demos: DemosId) -> Result<Vec<Trial>> {
+        let mut all: Vec<Trial> = self
+            .lock()
+            .trials
+            .iter()
+            .filter(|t| t.demos_id == demos)
+            .cloned()
+            .collect();
+        all.sort_by(|a, b| b.id.0.cmp(&a.id.0));
+        Ok(all)
+    }
+
     async fn cast_ballot(
         &self,
         trial: TrialId,
@@ -1113,5 +1216,86 @@ impl TrialStore for MemoryStore {
             }
         }
         Ok((guilty, not_guilty))
+    }
+}
+
+#[async_trait]
+impl TrialCommentStore for MemoryStore {
+    async fn add(
+        &self,
+        trial: TrialId,
+        author: UserId,
+        body: String,
+        at: Timestamp,
+    ) -> Result<TrialComment> {
+        let mut g = self.lock();
+        g.next_trial_comment += 1;
+        let c = TrialComment::new(TrialCommentId(g.next_trial_comment), trial, author, body, at);
+        g.trial_comments.push(c.clone());
+        Ok(c)
+    }
+
+    async fn list_for_trial(&self, trial: TrialId) -> Result<Vec<TrialComment>> {
+        let mut mine: Vec<TrialComment> = self
+            .lock()
+            .trial_comments
+            .iter()
+            .filter(|c| c.trial_id == trial)
+            .cloned()
+            .collect();
+        mine.sort_by(|a, b| a.id.0.cmp(&b.id.0)); // oldest first
+        Ok(mine)
+    }
+}
+
+/// The most recent notifications a member is shown (older ones fall off the badge
+/// and list). Generous for a personal inbox, bounded so the in-RAM vector scan
+/// stays cheap.
+const NOTIFICATION_WINDOW: usize = 100;
+
+#[async_trait]
+impl NotificationStore for MemoryStore {
+    async fn push(
+        &self,
+        recipient: UserId,
+        kind: NotificationKind,
+        at: Timestamp,
+    ) -> Result<Notification> {
+        let mut g = self.lock();
+        g.next_notification += 1;
+        let n = Notification::new(NotificationId(g.next_notification), recipient, kind, at);
+        g.notifications.push(n.clone());
+        Ok(n)
+    }
+
+    async fn list_for(&self, recipient: UserId) -> Result<Vec<Notification>> {
+        let g = self.lock();
+        let mut mine: Vec<Notification> = g
+            .notifications
+            .iter()
+            .filter(|n| n.recipient == recipient)
+            .cloned()
+            .collect();
+        mine.sort_by(|a, b| b.id.0.cmp(&a.id.0)); // newest first
+        mine.truncate(NOTIFICATION_WINDOW);
+        Ok(mine)
+    }
+
+    async fn unread_count(&self, recipient: UserId) -> Result<u64> {
+        let g = self.lock();
+        Ok(g.notifications
+            .iter()
+            .filter(|n| n.recipient == recipient && !n.seen)
+            .count() as u64)
+    }
+
+    async fn mark_all_seen(&self, recipient: UserId) -> Result<()> {
+        let mut g = self.lock();
+        for n in g.notifications.iter_mut() {
+            if n.recipient == recipient {
+                n.seen = true;
+            }
+        }
+        Ok(())
     }
 }

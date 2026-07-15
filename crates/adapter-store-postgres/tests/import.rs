@@ -27,6 +27,10 @@ fn user(id: u64, handle: &str) -> User {
         feed_paging: domain::FeedPaging::Auto,
         is_franchise_barred: false,
         is_sensitive_reviewer: false,
+        blocked: Vec::new(),
+        allows_mention_alerts: true,
+        allows_jury_alerts: true,
+        allows_trial_comment_alerts: true,
     }
 }
 
@@ -47,6 +51,7 @@ fn proposal(id: u64, demos: u64, proposer: u64) -> Proposal {
         proposer: domain::UserId(proposer),
         kind: ProposalKind::AddRule {
             text: "be kind".into(),
+            sanction_days: 0,
         },
         opened_at: Timestamp(1),
         closes_at: Timestamp(1_000),
@@ -150,7 +155,7 @@ async fn import_preserves_ids_relationships_and_advances_counters() {
         &*store,
         domain::DemosId(20),
         domain::UserId(10),
-        ProposalKind::AddRule { text: "x".into() },
+        ProposalKind::AddRule { text: "x".into(), sanction_days: 0 },
         Timestamp(2),
         Timestamp(9_999),
     )

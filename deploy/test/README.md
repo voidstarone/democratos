@@ -27,6 +27,25 @@ docker run -d --name democratos-minio-test -p 59000:9000 \
   -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin minio/minio server /data
 ```
 
+## Running the Rust DB-gated tests
+
+Most of the Rust suite runs storeless, but the Postgres adapter and federation
+integration tests are gated on `TEST_DATABASE_URL` and **silently skip** when it
+is unset. Point it at a scratch database on the `democratos-pg-test` container
+above (the tests apply all migrations on connect and create sibling databases as
+needed, so `app` needs the `CREATEDB` it has by default):
+
+```sh
+docker exec democratos-pg-test psql -U app -d postgres -c 'CREATE DATABASE democratos_test'
+export TEST_DATABASE_URL='postgres://app:pg@127.0.0.1:55432/democratos_test'
+cargo test -p adapter-store-postgres -p adapter-federation
+```
+
+> Migration versions must be **unique** across `crates/adapter-store-postgres/migrations/`
+> — sqlx keys `_sqlx_migrations` on the numeric prefix, so two files sharing an
+> `NNNN` (easy to do when branches land in parallel) make *every* migrate run
+> fail with a `_sqlx_migrations_pkey` duplicate. Renumber, don't collide.
+
 ## The scripts
 
 | Script          | What it does                                                                 |

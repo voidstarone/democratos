@@ -208,6 +208,10 @@
     <a href="/submit" class="nav-link create-post-nav" data-enhance="composer">{{ t.new_post_button }}</a>
     <a href="/u/{{ handle }}" class="nav-link handle-link">@{{ handle }}</a>
     <a href="/preferences" class="nav-link">{{ t.preferences_link }}</a>
+    <!-- Notification bell: a script fills this with a link to /notifications and a
+         count pill when there are unread notifications. Always reachable via the
+         link once signed in; the pill shows only when something is unread. -->
+    <span id="notif-badge"></span>
     <!-- Reviewer link: a script adds a "Review" link for opted-in reviewers, with a
          count pill when their queue is non-empty. -->
     <span id="review-badge"></span>
@@ -253,6 +257,33 @@
         }
         el.appendChild(a);
       }
+    })
+    .catch(function () {});
+})();
+// Fill the toolbar notification bell for signed-in members: a link to the
+// notifications page, with a count pill when something is unread. The endpoint
+// identifies the caller from the session cookie, so a signed-out visitor gets
+// signed_in:false and no bell.
+(function () {
+  var el = document.getElementById('notif-badge');
+  if (!el) return;
+  fetch('/notifications/summary', { headers: { 'x-requested-with': 'fetch' } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (!d || !d.signed_in) return;
+      var a = document.createElement('a');
+      a.href = '/notifications';
+      a.className = 'nav-link notif-bell';
+      a.setAttribute('aria-label', 'Notifications');
+      a.setAttribute('title', 'Notifications');
+      a.textContent = '\u{1F56D}'; // ringing-bell glyph (text presentation, not emoji)
+      if (d.unread > 0) {
+        var pill = document.createElement('span');
+        pill.className = 'pill';
+        pill.textContent = d.unread;
+        a.appendChild(pill);
+      }
+      el.appendChild(a);
     })
     .catch(function () {});
 })();

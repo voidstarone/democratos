@@ -93,7 +93,7 @@ async fn writes_replicate_only_through_verified_events() {
     let alice = UserStore::create(&store_a, "alice", None, None, Timestamp(100))
         .await
         .unwrap();
-    let demos = DemosStore::create(&store_a, "rust", "Rustaceans", alice.id, Timestamp(100))
+    let demos = DemosStore::create(&store_a, "rust", "Rustaceans", alice.id, Vec::new(), Timestamp(100))
         .await
         .unwrap();
     let post = PostStore::create(
@@ -117,6 +117,7 @@ async fn writes_replicate_only_through_verified_events() {
         alice.id,
         ProposalKind::AddRule {
             text: "be kind".into(),
+            sanction_days: 0,
         },
         Timestamp(100),
         Timestamp(9999),

@@ -7,7 +7,7 @@ use adapter_moderation_local::{AutoApproveAgeVerifier, HeuristicNsfwScanner};
 use adapter_recommend_memory::MemoryRecommender;
 use adapter_store_memory::{FixedClock, MemoryStore};
 use app::{SearchScope, Services};
-use domain::Timestamp;
+use domain::{Timestamp, SIGN_OFFS_REQUIRED};
 
 fn build() -> Services {
     let store = Arc::new(MemoryStore::new());
@@ -27,6 +27,8 @@ fn build() -> Services {
         settings: store.clone(),
         sensitive_cases: store.clone(),
         trials: store.clone(),
+        notifications: store.clone(),
+        trial_comments: store.clone(),
         post_votes: store.clone(),
         comment_votes: store.clone(),
         media: store,
@@ -106,4 +108,45 @@ async fn search_site_wide_scoped_and_by_tag() {
         .await
         .unwrap();
     assert!(r.posts.is_empty());
+}
+
+#[tokio::test]
+async fn a_community_is_found_by_its_founding_tags() {
+    let svc = build();
+    let founder = svc.register_user("founder").await.unwrap();
+
+    // Open a petition carrying topic tags, then gather the co-signers that found it.
+    let petition = svc
+        .start_founding_tagged(
+            founder.id,
+            "Rust Systems",
+            vec!["rust".into(), "systems".into()],
+        )
+        .await
+        .unwrap();
+    let mut born = None;
+    for i in 0..SIGN_OFFS_REQUIRED {
+        let signer = svc.register_user(&format!("signer{i}")).await.unwrap();
+        born = svc.sign_founding(petition.id, signer.id).await.unwrap();
+    }
+    // The tags captured on the petition land on the demos it becomes.
+    let demos = born.expect("the ninth sign-off founds the demos");
+    assert_eq!(demos.tags, vec!["rust".to_string(), "systems".to_string()]);
+
+    // The community is now discoverable by either exact tag, site-wide.
+    let r = svc.search("", SearchScope::All, Some("rust")).await.unwrap();
+    assert_eq!(r.communities.len(), 1);
+    assert_eq!(r.communities[0].slug, "rust-systems");
+    let r = svc
+        .search("", SearchScope::All, Some("systems"))
+        .await
+        .unwrap();
+    assert_eq!(r.communities.len(), 1);
+
+    // The exact-tag needle never prefix-matches: "rus" finds nothing.
+    let r = svc.search("", SearchScope::All, Some("rus")).await.unwrap();
+    assert!(r.communities.is_empty());
+    // A community carries no tags it wasn't founded with.
+    let r = svc.search("", SearchScope::All, Some("python")).await.unwrap();
+    assert!(r.communities.is_empty());
 }

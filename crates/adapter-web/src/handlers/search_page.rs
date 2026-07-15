@@ -17,6 +17,7 @@ use crate::handlers::post_row::post_row;
 use crate::handlers::render::render;
 use crate::handlers::resolve_lang::resolve_lang;
 use crate::handlers::search_query::SearchQuery;
+use crate::handlers::viewer_blocks::viewer_blocks;
 use crate::handlers::wants_fragment::wants_fragment;
 use crate::views::demos_list_item::DemosListItem;
 use crate::views::search_fragment_view::SearchFragmentView;
@@ -62,11 +63,15 @@ pub async fn search_page(
     };
 
     let tag = query.tag.as_deref().filter(|t| !t.is_empty());
-    let results: SearchResults = state
+    let mut results: SearchResults = state
         .services
         .search(&query.q, scope, tag)
         .await
         .unwrap_or_default();
+
+    // A blocked account's posts never surface in search either.
+    let blocked = viewer_blocks(&state, user.as_ref().map(|u| u.id)).await;
+    results.posts.retain(|p| !blocked.contains(&p.author));
 
     // Search results span communities the viewer may not belong to, so scores
     // are read-only here (no vote arrows).

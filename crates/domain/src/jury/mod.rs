@@ -17,4 +17,5 @@ pub mod jury_sizing;
 pub mod reach_verdict;
 pub mod select_jury;
 pub mod trial;
+pub mod trial_comment;
 pub mod verdict;

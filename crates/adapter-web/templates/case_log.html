@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ t.case_log_heading }} · {{ name }} · Democratos{% endblock %}
+{% block content %}
+<p class="muted"><a href="/d/{{ slug }}">← {{ name }}</a></p>
+<h1>{{ t.case_log_heading }}</h1>
+<p class="muted">{{ t.case_log_intro }}</p>
+{% if cases.is_empty() %}
+<p class="muted">{{ t.case_log_empty }}</p>
+{% else %}
+<ul class="case-log">
+  {% for c in cases %}
+  <li>
+    <a href="/trial/{{ c.trial_id }}">{{ t.trial_heading }} #{{ c.trial_id }}</a>
+    — @{{ c.accused }} ·
+    {% if c.open %}<strong>{{ t.case_ongoing }}</strong>{% else %}{{ c.verdict }}{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

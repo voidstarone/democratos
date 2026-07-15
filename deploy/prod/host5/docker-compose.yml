@@ -1,0 +1,217 @@
+# ============================================================================
+# HOST 192.168.2.5 — the FULL, PUBLIC-FACING node ("node 1").
+#
+# Runs: db1 (its own Postgres), the SHARED control plane (etcd) and SHARED media
+# store (MinIO) for the whole federation, node1 itself, and the public Caddy that
+# terminates HTTPS for demo.ratbum.com and for the internal fabric names.
+#
+#   demo.ratbum.com   (public)  ── router 80/443 ─▶ .5 Caddy ─▶ node1:3000
+#   n1.ratbum.com     (LAN TLS)              ─▶ .5 Caddy ─▶ node1:7400  (peer feed)
+#   minio.ratbum.com  (LAN TLS)              ─▶ .5 Caddy ─▶ minio:9000
+#   etcd.ratbum.com:2379 (LAN, native mTLS)  ─▶ published etcd (own CA)
+#
+# Fill deploy/prod/host5/.env from .env.example first. Compose refuses to start
+# with any required secret unset. Build context is the repo root (../../..).
+# ============================================================================
+
+x-node-build: &node-build
+  context: ../../..
+  dockerfile: Dockerfile
+
+services:
+  # --- shared control plane: ownership leases + epoch fencing ----------------
+  etcd:
+    image: gcr.io/etcd-development/etcd:v3.5.16
+    restart: unless-stopped
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd0
+      - --data-dir=/etcd-data
+      # Client-facing endpoint is TLS + mutual TLS: only holders of a client cert
+      # signed by our CA can talk to it. This is what lets etcd be published on the
+      # LAN (:2379) so node2 on .4 can reach it, without exposing the trust anchor.
+      - --listen-client-urls=https://0.0.0.0:2379
+      - --advertise-client-urls=https://etcd.ratbum.com:2379
+      - --cert-file=/certs/etcd-server.pem
+      - --key-file=/certs/etcd-server-key.pem
+      - --trusted-ca-file=/certs/etcd-ca.pem
+      - --client-cert-auth
+    volumes:
+      - etcd-data:/etcd-data
+      - ./certs:/certs:ro
+    ports:
+      - "2379:2379"          # LAN-reachable so node2 (.4) can reach the control plane
+    networks: [fabric]
+    healthcheck:
+      test: ["CMD", "etcdctl",
+             "--endpoints=https://127.0.0.1:2379",
+             "--cacert=/certs/etcd-ca.pem",
+             "--cert=/certs/node1-client.pem",
+             "--key=/certs/node1-client-key.pem",
+             "endpoint", "health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # --- shared media object store (any node serves any upload) ----------------
+  minio:
+    image: minio/minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+    volumes:
+      # Media is the only unbounded store: point MEDIA_DIR at a big disk on .5.
+      - "${MEDIA_DIR:-minio-data}:/data"
+    networks: [fabric]        # reached only via Caddy (minio.ratbum.com); never published
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # --- node1's source-of-truth database --------------------------------------
+  db1:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      POSTGRES_DB: democratos
+    volumes:
+      - db1-data:/var/lib/postgresql/data
+    networks: [fabric]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d democratos"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # --- the app node ----------------------------------------------------------
+  node1:
+    build: *node-build
+    image: democratos:latest
+    restart: unless-stopped
+    depends_on:
+      db1: {condition: service_healthy}
+      etcd: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    # Resolve fabric names deterministically to LAN IPs (don't depend on Cloudflare
+    # resolving private IPs from inside the container). n2 is the peer on .4;
+    # everything else is on this host (.5).
+    extra_hosts:
+      - "etcd.ratbum.com:192.168.2.5"
+      - "minio.ratbum.com:192.168.2.5"
+      - "n1.ratbum.com:192.168.2.5"
+      - "n2.ratbum.com:192.168.2.4"
+    environment:
+      DEMOCRATOS_NODE_ID: "1"
+
+      # storage
+      DEMOCRATOS_STORE: postgres
+      DATABASE_URL: postgres://app:${DB_PASSWORD}@db1:5432/democratos
+      # db1 is local to this box (private Docker net), so the plaintext link never
+      # leaves the host. If you ever move db1 off-box, use ?sslmode=require.
+
+      # shared media over TLS (rust-s3 trusts only public CAs -> real cert via Caddy)
+      DEMOCRATOS_MEDIA: s3
+      DEMOCRATOS_S3_ENDPOINT: https://minio.ratbum.com
+      DEMOCRATOS_S3_BUCKET: democratos-media
+      DEMOCRATOS_S3_PATH_STYLE: "true"
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+      # media safety: re-encode (strip metadata / defuse bombs) + quarantine held
+      # uploads. CSAM scan stays OFF (no lawful hash source); malicious-media
+      # sanitisation runs regardless.
+      DEMOCRATOS_MEDIA_SANITIZER: reencode
+      DEMOCRATOS_QUARANTINE_DIR: /data/quarantine
+
+      # federation transport
+      DEMOCRATOS_FEDERATION_ADDR: 0.0.0.0:7400
+      DEMOCRATOS_ADVERTISE_URL: https://n1.ratbum.com     # trusted issuer must advertise
+      DEMOCRATOS_CLUSTER_TOKEN: ${DEMOCRATOS_CLUSTER_TOKEN:?set DEMOCRATOS_CLUSTER_TOKEN in .env}
+      # peer feed is https (Caddy terminates TLS in front of node2:7400), so no
+      # plaintext-federation override is needed — the guard is satisfied by TLS.
+
+      # control plane (etcd) over mutual TLS with our internal CA
+      DEMOCRATOS_ETCD_ENDPOINTS: https://etcd.ratbum.com:2379
+      DEMOCRATOS_ETCD_CA: /certs/etcd-ca.pem
+      DEMOCRATOS_ETCD_CERT: /certs/etcd-client.pem
+      DEMOCRATOS_ETCD_KEY: /certs/etcd-client-key.pem
+      DEMOCRATOS_ETCD_DOMAIN: etcd.ratbum.com
+
+      # trusted account issuing (accounts honoured fleet-wide)
+      FEDERATION_TRUST_ROOT: ${FEDERATION_TRUST_ROOT:?set FEDERATION_TRUST_ROOT in .env}
+      DEMOCRATOS_NODE_SEED: ${NODE1_SEED:?set NODE1_SEED in .env}
+
+      # public web + sessions
+      DEMOCRATOS_ADDR: 0.0.0.0:3000
+      DEMOCRATOS_PUBLIC_BASE_URL: https://demo.ratbum.com
+      DEMOCRATOS_SECURE_COOKIES: "1"
+      # Shared across BOTH nodes so a session cookie minted on node1 verifies on
+      # node2 (Caddy round-robins reads between them).
+      DEMOCRATOS_SESSION_SECRET: ${DEMOCRATOS_SESSION_SECRET:?set DEMOCRATOS_SESSION_SECRET in .env}
+
+      # invitation-only signup + admin review queue (LAN + secret gated)
+      DEMOCRATOS_INVITE_ONLY: "1"
+      DEMOCRATOS_ADMIN_SUBNET: "192.168.2.0/24"
+      DEMOCRATOS_ADMIN_SECRET: ${DEMOCRATOS_ADMIN_SECRET:?set DEMOCRATOS_ADMIN_SECRET in .env}
+
+      # email delivery (SMTP relay already configured on the box — see .env)
+      DEMOCRATOS_NOTIFIER: smtp
+      DEMOCRATOS_SMTP_HOST: ${DEMOCRATOS_SMTP_HOST:?set DEMOCRATOS_SMTP_HOST in .env}
+      DEMOCRATOS_SMTP_PORT: "${DEMOCRATOS_SMTP_PORT:-587}"
+      DEMOCRATOS_SMTP_STARTTLS: "${DEMOCRATOS_SMTP_STARTTLS:-true}"
+      DEMOCRATOS_SMTP_USERNAME: ${DEMOCRATOS_SMTP_USERNAME:?set DEMOCRATOS_SMTP_USERNAME in .env}
+      DEMOCRATOS_SMTP_PASSWORD: ${DEMOCRATOS_SMTP_PASSWORD:?set DEMOCRATOS_SMTP_PASSWORD in .env}
+      DEMOCRATOS_SMTP_FROM: ${DEMOCRATOS_SMTP_FROM:?set DEMOCRATOS_SMTP_FROM in .env}
+
+      DEMOCRATOS_RECOMMEND_INDEX: /tmp/democratos.recindex
+      DEMOCRATOS_REFRESH_SECS: "120"
+    command: ["serve", "--peer", "2=https://n2.ratbum.com"]
+    volumes:
+      - ./certs:/certs:ro
+      - node1-data:/data          # quarantine + scratch
+    tmpfs:
+      - /tmp:size=128m
+    networks: [fabric, edge]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 3s
+      start_period: 30s
+      retries: 3
+
+  # --- public reverse proxy + TLS (Cloudflare DNS-01) ------------------------
+  caddy:
+    build:
+      context: ../caddy
+    image: democratos-caddy:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"        # public (router-forwarded) — HTTP->HTTPS redirect
+      - "443:443"      # public (router-forwarded) demo.ratbum.com, + LAN SNI for n1/minio
+    environment:
+      # Zone:DNS:Edit token for ratbum.com, so Caddy can solve DNS-01 for the
+      # internal fabric names that have no public inbound path.
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:?set CLOUDFLARE_API_TOKEN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [node1, minio]
+    networks: [edge, fabric]      # edge->node1:3000/:7400, fabric->minio:9000
+
+networks:
+  fabric: {}     # db + etcd + minio + node feed (internal to this host)
+  edge: {}       # caddy <-> node1 web/feed
+
+volumes:
+  etcd-data:
+  minio-data:
+  db1-data:
+  node1-data:
+  caddy-data:
+  caddy-config:

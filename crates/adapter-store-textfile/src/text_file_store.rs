@@ -9,15 +9,16 @@ use async_trait::async_trait;
 use app::{Result, StoreError};
 use app::{
     CommentStore, CommentVoteStore, DemosStore, FoundingStore, InviteRequestStore, MembershipStore,
-    PostStore, PostVoteStore, ProposalStore, ReportStore, RuleStore, SensitiveCaseStore,
-    SettingsStore, TrialStore, UserStore, VoteStore,
+    NotificationStore, PostStore, PostVoteStore, ProposalStore, ReportStore, RuleStore,
+    SensitiveCaseStore, SettingsStore, TrialCommentStore, TrialStore, UserStore, VoteStore,
 };
 use domain::{
     Comment, CommentId, Demos, DemosId, FeedPaging, FoundingId, FoundingPetition, FranchiseCriteria,
-    InviteId, InviteRequest, JurySizing, Media, Membership, Post, PostId, PostingPolicy, Proposal,
-    ProposalId, ProposalKind, Report, ReportId, ReportReason, ReportStatus, ReportTarget, Rule,
-    RuleId, SensitiveCase, SensitiveCaseId, SensitiveCaseStatus, Tally, Tier, Timestamp, Trial,
-    TrialId, User, UserId, Verdict, VoteWeighting, WeightingScope,
+    InviteId, InviteRequest, JurySizing, Media, Membership, Notification, NotificationId,
+    NotificationKind, Post, PostId, PostingPolicy, Proposal, ProposalId, ProposalKind, Report,
+    ReportId, ReportReason, ReportStatus, ReportTarget, Rule, RuleId, SensitiveCase,
+    SensitiveCaseId, SensitiveCaseStatus, Tally, Tier, Timestamp, Trial, TrialComment,
+    TrialCommentId, TrialId, User, UserId, Verdict, VoteWeighting, WeightingScope,
 };
 
 use crate::comment_vote_rec::CommentVoteRec;
@@ -131,6 +132,47 @@ impl UserStore for TextFileStore {
             .find(|u| u.id == id)
             .ok_or(StoreError::NotFound)?;
         u.is_sensitive_reviewer = is_reviewer;
+        self.flush(&db)
+    }
+
+    async fn block_user(&self, blocker: UserId, blocked: UserId) -> Result<()> {
+        let mut db = self.lock();
+        let u = db
+            .users
+            .iter_mut()
+            .find(|u| u.id == blocker)
+            .ok_or(StoreError::NotFound)?;
+        u.block(blocked);
+        self.flush(&db)
+    }
+
+    async fn unblock_user(&self, blocker: UserId, blocked: UserId) -> Result<()> {
+        let mut db = self.lock();
+        let u = db
+            .users
+            .iter_mut()
+            .find(|u| u.id == blocker)
+            .ok_or(StoreError::NotFound)?;
+        u.unblock(blocked);
+        self.flush(&db)
+    }
+
+    async fn set_alert_prefs(
+        &self,
+        id: UserId,
+        allows_mention_alerts: bool,
+        allows_jury_alerts: bool,
+        allows_trial_comment_alerts: bool,
+    ) -> Result<()> {
+        let mut db = self.lock();
+        let u = db
+            .users
+            .iter_mut()
+            .find(|u| u.id == id)
+            .ok_or(StoreError::NotFound)?;
+        u.allows_mention_alerts = allows_mention_alerts;
+        u.allows_jury_alerts = allows_jury_alerts;
+        u.allows_trial_comment_alerts = allows_trial_comment_alerts;
         self.flush(&db)
     }
 
@@ -287,11 +329,13 @@ impl DemosStore for TextFileStore {
         slug: &str,
         name: &str,
         founder: UserId,
+        tags: Vec<String>,
         created_at: Timestamp,
     ) -> Result<Demos> {
         let mut db = self.lock();
         db.next_demos += 1;
-        let demos = Demos::new(DemosId(db.next_demos), slug, name, founder, created_at);
+        let demos =
+            Demos::new(DemosId(db.next_demos), slug, name, founder, created_at).with_tags(tags);
         db.demoi.push(demos.clone());
         self.flush(&db)?;
         Ok(demos)
@@ -303,6 +347,18 @@ impl DemosStore for TextFileStore {
 
     async fn by_slug(&self, slug: &str) -> Result<Option<Demos>> {
         Ok(self.lock().demoi.iter().find(|d| d.slug == slug).cloned())
+    }
+
+    async fn by_tag(&self, tag: &str) -> Result<Vec<Demos>> {
+        let mut out: Vec<Demos> = self
+            .lock()
+            .demoi
+            .iter()
+            .filter(|d| d.tags.iter().any(|t| t == tag))
+            .cloned()
+            .collect();
+        out.reverse();
+        Ok(out)
     }
 
     async fn update_criteria(&self, id: DemosId, criteria: FranchiseCriteria) -> Result<()> {
@@ -371,6 +427,17 @@ impl DemosStore for TextFileStore {
         self.flush(&db)
     }
 
+    async fn set_max_sanction(&self, id: DemosId, days: u32) -> Result<()> {
+        let mut db = self.lock();
+        let d = db
+            .demoi
+            .iter_mut()
+            .find(|d| d.id == id)
+            .ok_or(StoreError::NotFound)?;
+        d.max_sanction_days = days;
+        self.flush(&db)
+    }
+
     async fn list(&self) -> Result<Vec<Demos>> {
         Ok(self.lock().demoi.clone())
     }
@@ -383,6 +450,7 @@ impl FoundingStore for TextFileStore {
         slug: &str,
         name: &str,
         founder: UserId,
+        tags: Vec<String>,
         created_at: Timestamp,
     ) -> Result<FoundingPetition> {
         let mut db = self.lock();
@@ -394,6 +462,7 @@ impl FoundingStore for TextFileStore {
             founder,
             sign_offs: Vec::new(),
             created_at,
+            tags,
         };
         db.foundings.push(petition.clone());
         self.flush(&db)?;
@@ -667,10 +736,16 @@ impl PostVoteStore for TextFileStore {
 
 #[async_trait]
 impl RuleStore for TextFileStore {
-    async fn create(&self, demos: DemosId, text: &str, at: Timestamp) -> Result<Rule> {
+    async fn create(
+        &self,
+        demos: DemosId,
+        text: &str,
+        sanction_days: u32,
+        at: Timestamp,
+    ) -> Result<Rule> {
         let mut db = self.lock();
         db.next_rule += 1;
-        let rule = Rule::new(RuleId(db.next_rule), demos, text, at);
+        let rule = Rule::new(RuleId(db.next_rule), demos, text, sanction_days, at);
         db.rules.push(rule.clone());
         self.flush(&db)?;
         Ok(rule)
@@ -790,6 +865,19 @@ impl PostStore for TextFileStore {
 
     async fn list_all(&self) -> Result<Vec<Post>> {
         Ok(self.lock().posts.clone())
+    }
+
+    async fn by_tag(&self, demos: Option<DemosId>, tag: &str) -> Result<Vec<Post>> {
+        let mut out: Vec<Post> = self
+            .lock()
+            .posts
+            .iter()
+            .filter(|p| demos.map_or(true, |d| p.demos_id == d))
+            .filter(|p| p.tags.iter().any(|t| t == tag))
+            .cloned()
+            .collect();
+        out.reverse();
+        Ok(out)
     }
 
     async fn distinct_demos_by_author(&self, author: UserId) -> Result<u64> {
@@ -1091,6 +1179,18 @@ impl TrialStore for TextFileStore {
             .collect())
     }
 
+    async fn list_for_demos(&self, demos: DemosId) -> Result<Vec<Trial>> {
+        let mut all: Vec<Trial> = self
+            .lock()
+            .trials
+            .iter()
+            .filter(|t| t.demos_id == demos)
+            .cloned()
+            .collect();
+        all.sort_by(|a, b| b.id.0.cmp(&a.id.0));
+        Ok(all)
+    }
+
     async fn cast_ballot(
         &self,
         trial: TrialId,
@@ -1138,6 +1238,94 @@ impl TrialStore for TextFileStore {
     }
 }
 
+#[async_trait]
+impl TrialCommentStore for TextFileStore {
+    async fn add(
+        &self,
+        trial: TrialId,
+        author: UserId,
+        body: String,
+        at: Timestamp,
+    ) -> Result<TrialComment> {
+        let mut db = self.lock();
+        db.next_trial_comment += 1;
+        let c = TrialComment::new(
+            TrialCommentId(db.next_trial_comment),
+            trial,
+            author,
+            body,
+            at,
+        );
+        db.trial_comments.push(c.clone());
+        self.flush(&db)?;
+        Ok(c)
+    }
+
+    async fn list_for_trial(&self, trial: TrialId) -> Result<Vec<TrialComment>> {
+        let mut mine: Vec<TrialComment> = self
+            .lock()
+            .trial_comments
+            .iter()
+            .filter(|c| c.trial_id == trial)
+            .cloned()
+            .collect();
+        mine.sort_by(|a, b| a.id.0.cmp(&b.id.0)); // oldest first
+        Ok(mine)
+    }
+}
+
+/// The most recent notifications a member is shown (older ones fall off).
+const NOTIFICATION_WINDOW: usize = 100;
+
+#[async_trait]
+impl NotificationStore for TextFileStore {
+    async fn push(
+        &self,
+        recipient: UserId,
+        kind: NotificationKind,
+        at: Timestamp,
+    ) -> Result<Notification> {
+        let mut db = self.lock();
+        db.next_notification += 1;
+        let n = Notification::new(NotificationId(db.next_notification), recipient, kind, at);
+        db.notifications.push(n.clone());
+        self.flush(&db)?;
+        Ok(n)
+    }
+
+    async fn list_for(&self, recipient: UserId) -> Result<Vec<Notification>> {
+        let db = self.lock();
+        let mut mine: Vec<Notification> = db
+            .notifications
+            .iter()
+            .filter(|n| n.recipient == recipient)
+            .cloned()
+            .collect();
+        mine.sort_by(|a, b| b.id.0.cmp(&a.id.0));
+        mine.truncate(NOTIFICATION_WINDOW);
+        Ok(mine)
+    }
+
+    async fn unread_count(&self, recipient: UserId) -> Result<u64> {
+        let db = self.lock();
+        Ok(db
+            .notifications
+            .iter()
+            .filter(|n| n.recipient == recipient && !n.seen)
+            .count() as u64)
+    }
+
+    async fn mark_all_seen(&self, recipient: UserId) -> Result<()> {
+        let mut db = self.lock();
+        for n in db.notifications.iter_mut() {
+            if n.recipient == recipient {
+                n.seen = true;
+            }
+        }
+        self.flush(&db)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1156,7 +1344,7 @@ mod tests {
             let u = UserStore::create(&store, "alice", None, None, Timestamp(0))
                 .await
                 .unwrap();
-            DemosStore::create(&store, "rust", "Rustaceans", u.id, Timestamp(0))
+            DemosStore::create(&store, "rust", "Rustaceans", u.id, Vec::new(), Timestamp(0))
                 .await
                 .unwrap();
             u.id

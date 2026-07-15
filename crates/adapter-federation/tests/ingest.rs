@@ -65,7 +65,7 @@ async fn apply_is_gated_by_ownership_and_epoch() {
     let alice = UserStore::create(&store_a, "alice", None, None, Timestamp(1))
         .await
         .unwrap();
-    let demos = DemosStore::create(&store_a, "rust", "Rustaceans", alice.id, Timestamp(1))
+    let demos = DemosStore::create(&store_a, "rust", "Rustaceans", alice.id, Vec::new(), Timestamp(1))
         .await
         .unwrap();
     let post = PostStore::create(
@@ -217,7 +217,7 @@ async fn a_transiently_rejected_event_is_retried_not_skipped() {
     let alice = UserStore::create(&store_a, "alice", None, None, Timestamp(1))
         .await
         .unwrap();
-    let demos = DemosStore::create(&store_a, "rust", "Rustaceans", alice.id, Timestamp(1))
+    let demos = DemosStore::create(&store_a, "rust", "Rustaceans", alice.id, Vec::new(), Timestamp(1))
         .await
         .unwrap();
     let post = PostStore::create(
@@ -334,7 +334,7 @@ async fn a_permanently_rejected_event_is_skipped_not_stalled() {
     let alice = UserStore::create(&store_a, "alice", None, None, Timestamp(1))
         .await
         .unwrap();
-    let demos = DemosStore::create(&store_a, "rust", "Rustaceans", alice.id, Timestamp(1))
+    let demos = DemosStore::create(&store_a, "rust", "Rustaceans", alice.id, Vec::new(), Timestamp(1))
         .await
         .unwrap();
     let p1 = PostStore::create(

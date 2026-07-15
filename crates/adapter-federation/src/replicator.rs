@@ -74,7 +74,9 @@ fn is_transient(err: &AuthError) -> bool {
 /// list it appears in) would fail — so it is rejected at the boundary. Ballot
 /// tables carry no `data` document and have nothing to validate here.
 fn payload_is_well_formed(entity: &str, payload: &serde_json::Value) -> bool {
-    use domain::{Comment, Demos, Membership, Post, Proposal, Report, Rule, Trial, User};
+    use domain::{
+        Comment, Demos, Membership, Post, Proposal, Report, Rule, Trial, TrialComment, User,
+    };
     // The domain document lives in the row's `data` column; a row without one
     // (the relational ballot tables) has no domain struct to validate.
     let Some(data) = payload.get("data") else {
@@ -95,6 +97,7 @@ fn payload_is_well_formed(entity: &str, payload: &serde_json::Value) -> bool {
         "comments" => parses!(Comment),
         "reports" => parses!(Report),
         "trials" => parses!(Trial),
+        "trial_comments" => parses!(TrialComment),
         _ => true,
     }
 }

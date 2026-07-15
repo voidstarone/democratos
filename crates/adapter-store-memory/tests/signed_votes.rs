@@ -32,6 +32,8 @@ fn build() -> Services {
         settings: store.clone(),
         sensitive_cases: store.clone(),
         trials: store.clone(),
+        notifications: store.clone(),
+        trial_comments: store.clone(),
         post_votes: store.clone(),
         comment_votes: store.clone(),
         media: store.clone(),
@@ -79,6 +81,7 @@ async fn an_enrolled_account_must_sign_its_votes() {
             demos.id,
             ProposalKind::AddRule {
                 text: "be kind".into(),
+                sanction_days: 0,
             },
         )
         .await
@@ -141,6 +144,7 @@ async fn a_keyless_account_can_still_vote_unsigned_during_rollout() {
             demos.id,
             ProposalKind::AddRule {
                 text: "be kind".into(),
+                sanction_days: 0,
             },
         )
         .await

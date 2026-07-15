@@ -1,0 +1,13 @@
+# Caddy on HOST .4 — single purpose: terminate TLS for node2's federation feed so
+# node1 (.5) can replicate it over a publicly-trusted https link. Cert via Let's
+# Encrypt / Cloudflare DNS-01 (n2.ratbum.com resolves to a private LAN IP, so
+# DNS-01 is the only issuance path). Reachable only on the LAN — not router-forwarded.
+
+{
+	email {$ACME_EMAIL}
+	acme_dns cloudflare {$CLOUDFLARE_API_TOKEN}
+}
+
+n2.ratbum.com {
+	reverse_proxy node2:7400
+}

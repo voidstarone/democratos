@@ -33,7 +33,7 @@ pub(crate) async fn seed(
     )
     .await
     .context("create founder")?;
-    let demos = DemosStore::create(&store, &slug, "Load Test", founder.id, ts)
+    let demos = DemosStore::create(&store, &slug, "Load Test", founder.id, Vec::new(), ts)
         .await
         .context("create demos")?;
     let proposal = ProposalStore::create(
@@ -42,6 +42,7 @@ pub(crate) async fn seed(
         founder.id,
         ProposalKind::AddRule {
             text: "load-test proposal".into(),
+            sanction_days: 0,
         },
         ts,
         Timestamp(10_000_000_000), // open far into the future
