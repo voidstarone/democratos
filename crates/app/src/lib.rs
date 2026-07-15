@@ -90,6 +90,7 @@ pub use recommend::recommendation::Recommendation;
 pub use recommend::refresh_recommendations::RefreshRecommendations;
 pub use services::enfranchise_outcome::EnfranchiseOutcome;
 pub use services::feed_item::FeedItem;
+pub use services::feed_service::FeedService;
 pub use services::account_service::AccountService;
 pub use services::blocking_service::BlockingService;
 pub use services::content_service::ContentService;

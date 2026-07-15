@@ -188,6 +188,7 @@ pub fn router(
             moderation: set.moderation.clone(),
             governance: set.governance.clone(),
             content: set.content.clone(),
+            feed: set.feed.clone(),
             writes,
             minter,
             authenticator,

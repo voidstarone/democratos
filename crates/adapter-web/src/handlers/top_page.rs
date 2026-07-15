@@ -36,7 +36,7 @@ pub async fn top_page(
     let page = page_of(pg.page);
     let mode = paging_mode(user.as_ref());
 
-    let mut all = state.services.top_posts().await.unwrap_or_default();
+    let mut all = state.feed.top_posts().await.unwrap_or_default();
     let blocked = viewer_blocks(&state, viewer_id).await;
     all.retain(|item| !blocked.contains(&item.post.author));
     let (window, has_next) = paginate(all, page);

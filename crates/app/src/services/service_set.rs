@@ -13,6 +13,7 @@ use std::sync::Arc;
 use super::account_service::AccountService;
 use super::blocking_service::BlockingService;
 use super::content_service::ContentService;
+use super::feed_service::FeedService;
 use super::founding_service::FoundingService;
 use super::governance_service::GovernanceService;
 use super::invite_service::InviteService;
@@ -42,6 +43,7 @@ pub struct ServiceSet {
     pub moderation: Arc<ModerationService>,
     pub governance: Arc<GovernanceService>,
     pub content: Arc<ContentService>,
+    pub feed: Arc<FeedService>,
 }
 
 impl ServiceSet {
@@ -63,6 +65,7 @@ impl ServiceSet {
             moderation: Arc::new(s.moderation_service()),
             governance: Arc::new(s.governance_service()),
             content: Arc::new(s.content_service()),
+            feed: Arc::new(s.feed_service()),
         }
     }
 }

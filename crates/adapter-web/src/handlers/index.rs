@@ -51,7 +51,7 @@ pub async fn index(
         // Ask for enough to fill this page and reveal whether another follows.
         let want = page * FEED_PAGE_SIZE + 1;
         for rec in state
-            .services
+            .feed
             .recommend_feed()
             .execute(uid, want)
             .await
@@ -61,7 +61,7 @@ pub async fn index(
         }
     }
     if items.is_empty() {
-        for item in state.services.top_posts().await.unwrap_or_default() {
+        for item in state.feed.top_posts().await.unwrap_or_default() {
             items.push((item.post, item.community_slug, Some(item.score)));
         }
     }

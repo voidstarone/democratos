@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use app::{
     AccountAuthenticator, AccountMinter, AccountService, BlockingService, ContentService,
-    FoundingService, GovernanceService, GovernanceWrites, InviteService, MembershipService,
+    FeedService, FoundingService, GovernanceService, GovernanceWrites, InviteService, MembershipService,
     MetricsService, ModerationService, NotificationService, ProfileService, SearchService,
     SensitiveReviewService, Services, SessionSigner,
 };
@@ -34,6 +34,7 @@ pub struct AppState {
     pub moderation: Arc<ModerationService>,
     pub governance: Arc<GovernanceService>,
     pub content: Arc<ContentService>,
+    pub feed: Arc<FeedService>,
     /// Where governance ballots go. Single-box this runs locally; federated it
     /// routes to the owning node. See [`app::GovernanceWrites`].
     pub writes: Arc<dyn GovernanceWrites>,
