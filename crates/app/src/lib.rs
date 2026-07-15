@@ -105,6 +105,7 @@ pub use services::search_service::SearchService;
 pub use services::sensitive_review_service::SensitiveReviewService;
 pub use services::search_results::SearchResults;
 pub use services::search_scope::SearchScope;
+pub use services::service_set::ServiceSet;
 pub use services::services::Services;
 pub use session::constant_time_eq::constant_time_eq;
 pub use session::session_signer::SessionSigner;

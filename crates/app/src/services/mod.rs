@@ -13,7 +13,9 @@ pub mod search_scope;
 #[allow(clippy::module_inception)]
 pub mod services;
 
-// Cohesive per-area services, each owning only the ports it needs.
+// Cohesive per-area services, each owning only the ports it needs, plus the
+// ServiceSet that bundles one built instance of each for separate injection.
+pub mod service_set;
 pub mod account_service;
 pub mod blocking_service;
 pub mod content_service;
