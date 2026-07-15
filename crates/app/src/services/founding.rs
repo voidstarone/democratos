@@ -32,7 +32,7 @@ impl Services {
         name: &str,
         tags: Vec<String>,
     ) -> Result<Demos, FoundDemosError> {
-        self.ensure_not_barred(founder).await?;
+        self.account_service().ensure_not_barred(founder).await?;
         if self.demoi.by_slug(slug).await?.is_some() {
             return Err(StoreError::AlreadyExists.into());
         }
@@ -69,7 +69,7 @@ impl Services {
         name: &str,
         tags: Vec<String>,
     ) -> Result<FoundingPetition, StartFoundingError> {
-        self.ensure_not_barred(founder).await?;
+        self.account_service().ensure_not_barred(founder).await?;
         let name = name.trim();
         let slug = slugify(name);
         if slug.is_empty() {
@@ -117,7 +117,7 @@ impl Services {
         }
         // Co-signing enfranchises the signer when quorum lands, so a barred puppet
         // must not be able to sign its way into the franchise.
-        self.ensure_not_barred(user).await?;
+        self.account_service().ensure_not_barred(user).await?;
         let petition = self.foundings.sign(id, user).await?;
         if !petition.is_ready() {
             return Ok(None);

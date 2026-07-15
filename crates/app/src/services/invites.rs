@@ -1,35 +1,43 @@
+//! Facade delegators for invitation-only access use-cases. The logic now lives in
+//! [`InviteService`](super::invite_service::InviteService); these thin methods
+//! keep `services.request_invite()` and friends working for call sites not yet
+//! migrated off the `Services` aggregator.
 
+use domain::{InviteId, InviteRequest};
 
-use domain::{
-    InviteId, InviteRequest,
-};
+use crate::{AcceptInviteError, ApproveInviteError, RequestInviteError, Result};
 
-
-use crate::invite::hash_token::hash_token;
-use crate::invite::new_invite_token::new_invite_token;
-use crate::{
-    AcceptInviteError, ApproveInviteError, RequestInviteError, Result,
-};
-
-
+use super::invite_service::InviteService;
 use super::services::Services;
 
 impl Services {
+    /// Build the extracted [`InviteService`] from the ports this aggregator still
+    /// holds. Cheap — `Arc` clones only — so delegators construct one per call
+    /// rather than storing a field (which would break every `Services { … }`
+    /// literal). Removed once all call sites inject `InviteService` directly.
+    pub(super) fn invite_service(&self) -> InviteService {
+        InviteService::new(
+            self.invites.clone(),
+            self.settings.clone(),
+            self.notifier.clone(),
+            self.users.clone(),
+            self.public_base_url.clone(),
+            self.invite_token_ttl_days,
+            self.clock.clone(),
+        )
+    }
+
     /// Whether new sign-ups currently require an invite. Reads the persisted
     /// operator toggle, falling back to `default_when_unset` (the node's boot
     /// flag) when it has never been set. Cheap enough to call per request.
     pub async fn is_invite_only(&self, default_when_unset: bool) -> Result<bool> {
-        Ok(self
-            .settings
-            .is_invite_only()
-            .await?
-            .unwrap_or(default_when_unset))
+        self.invite_service().is_invite_only(default_when_unset).await
     }
 
     /// Turn invitation-only access on or off, persisting the choice so it survives
     /// a restart.
     pub async fn set_invite_only(&self, invite_only: bool) -> Result<()> {
-        self.settings.set_invite_only(invite_only).await
+        self.invite_service().set_invite_only(invite_only).await
     }
 
     /// Take a request for an account from the public waitlist form.
@@ -44,27 +52,12 @@ impl Services {
         email: &str,
         note: Option<&str>,
     ) -> Result<(), RequestInviteError> {
-        let email = domain::normalize_email(email);
-        domain::validate_email(&email).map_err(|e| RequestInviteError::Rejected(e.message()))?;
-
-        // Already an account, or already on the list → no-op, no leak.
-        if self.users.by_email(&email).await?.is_some() {
-            return Ok(());
-        }
-        if self.invites.by_email(&email).await?.is_some() {
-            return Ok(());
-        }
-
-        let note = note.map(str::trim).filter(|n| !n.is_empty());
-        self.invites
-            .create(&email, note, self.clock.now())
-            .await?;
-        Ok(())
+        self.invite_service().request_invite(email, note).await
     }
 
     /// The review queue: every request still awaiting a decision, oldest first.
     pub async fn list_pending_invites(&self) -> Result<Vec<InviteRequest>> {
-        self.invites.list_pending().await
+        self.invite_service().list_pending_invites().await
     }
 
     /// Approve a pending request: mint a one-time token, email the requester the
@@ -73,46 +66,12 @@ impl Services {
     /// failure leaves the request pending and retryable rather than approved yet
     /// unreachable.
     pub async fn approve_invite(&self, id: InviteId) -> Result<(), ApproveInviteError> {
-        let request = self
-            .invites
-            .get(id)
-            .await?
-            .ok_or(ApproveInviteError::NotPending)?;
-        if request.status != domain::InviteStatus::Pending {
-            return Err(ApproveInviteError::NotPending);
-        }
-
-        let token = new_invite_token();
-        let accept_url = format!(
-            "{}/invite/accept?token={}",
-            self.public_base_url.trim_end_matches('/'),
-            token
-        );
-        // Deliver first — if this fails, the request stays Pending.
-        self.notifier
-            .notify_invite_approved(&request.email, &accept_url)
-            .await?;
-
-        let now = self.clock.now();
-        let expires_at = now.plus_days(self.invite_token_ttl_days);
-        self.invites
-            .approve(id, &hash_token(&token), expires_at, now)
-            .await?;
-        Ok(())
+        self.invite_service().approve_invite(id).await
     }
 
     /// Reject a pending request. No email is sent.
     pub async fn reject_invite(&self, id: InviteId) -> Result<(), ApproveInviteError> {
-        let request = self
-            .invites
-            .get(id)
-            .await?
-            .ok_or(ApproveInviteError::NotPending)?;
-        if request.status != domain::InviteStatus::Pending {
-            return Err(ApproveInviteError::NotPending);
-        }
-        self.invites.reject(id, self.clock.now()).await?;
-        Ok(())
+        self.invite_service().reject_invite(id).await
     }
 
     /// Resolve a raw invite token to its (still-redeemable) request, so the accept
@@ -123,21 +82,12 @@ impl Services {
         &self,
         token: &str,
     ) -> Result<InviteRequest, AcceptInviteError> {
-        let request = self
-            .invites
-            .by_token_hash(&hash_token(token))
-            .await?
-            .ok_or(AcceptInviteError::InvalidToken)?;
-        if !request.is_redeemable(self.clock.now()) {
-            return Err(AcceptInviteError::InvalidToken);
-        }
-        Ok(request)
+        self.invite_service().validate_invite_token(token).await
     }
 
     /// Consume an approved invite once its account has been created — makes the
     /// token single-use.
     pub async fn mark_invite_accepted(&self, id: InviteId) -> Result<(), AcceptInviteError> {
-        self.invites.mark_accepted(id).await?;
-        Ok(())
+        self.invite_service().mark_invite_accepted(id).await
     }
 }

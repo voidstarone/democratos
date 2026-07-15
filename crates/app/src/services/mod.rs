@@ -14,11 +14,14 @@ pub mod search_scope;
 pub mod services;
 
 // Cohesive per-area services, each owning only the ports it needs.
+pub mod account_service;
 pub mod blocking_service;
+pub mod invite_service;
 pub mod metrics_service;
 pub mod notification_service;
 pub mod profile_service;
 pub mod search_service;
+pub mod sensitive_review_service;
 
 // Free helper functions, one per file.
 pub mod escalate_to_operator;

@@ -111,7 +111,8 @@ impl Services {
         // node hosting the account (or any relay): the owner re-runs this check,
         // never trusting a forwarding node's word for who voted. Enforced here, on
         // the authoritative owner, so it holds for both local and forwarded votes.
-        self.verify_user_action(voter, &vote_message(proposal.0, aye), sig)
+        self.account_service()
+            .verify_user_action(voter, &vote_message(proposal.0, aye), sig)
             .await?;
         let now = self.clock.now();
         let demos = self

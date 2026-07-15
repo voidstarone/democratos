@@ -155,7 +155,8 @@ impl Services {
         // is applying, which it can compute from the vote state it rendered), so a
         // relaying node can't forge or flip a member's post vote. Verified here on
         // the authoritative owner, for both local and forwarded votes.
-        self.verify_user_action(user, &post_vote_message(post_id.0, dir), sig)
+        self.account_service()
+            .verify_user_action(user, &post_vote_message(post_id.0, dir), sig)
             .await?;
         self.post_votes.set(post_id, user, dir).await?;
         // The post author's popularity just changed; refresh their cached score.

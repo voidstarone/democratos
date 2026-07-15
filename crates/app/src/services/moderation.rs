@@ -314,7 +314,8 @@ impl Services {
         }
         // The verdict ballot must be signed by the juror, verified on the owner —
         // so a node hosting a juror can't cast a verdict in their name.
-        self.verify_user_action(juror, &jury_vote_message(trial_id.0, guilty), sig)
+        self.account_service()
+            .verify_user_action(juror, &jury_vote_message(trial_id.0, guilty), sig)
             .await?;
         // Weigh the ballot by this juror's weight *frozen at empanelment*, not a
         // live recomputation: the panel's total (`jury_weight`) was frozen from the
