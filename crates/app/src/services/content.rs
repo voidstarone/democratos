@@ -41,7 +41,8 @@ impl Services {
         self.run_bot_check(author, demos, now).await?;
         post.is_nsfw = self.run_nsfw_check(&post, now).await?;
         // Ping anyone named in the title or body (their opt-in is checked inside).
-        self.notify_mentions(author, &format!("{title} {body}"), post.id, None)
+        self.notification_service()
+            .notify_mentions(author, &format!("{title} {body}"), post.id, None)
             .await?;
         Ok(post)
     }
@@ -122,7 +123,8 @@ impl Services {
         self.recompute_popularity(author, post.demos_id).await?;
         self.run_bot_check(author, post.demos_id, now).await?;
         // Ping anyone named in the reply (their opt-in is checked inside).
-        self.notify_mentions(author, body, post_id, Some(comment.id))
+        self.notification_service()
+            .notify_mentions(author, body, post_id, Some(comment.id))
             .await?;
         Ok(comment)
     }

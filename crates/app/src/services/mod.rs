@@ -13,6 +13,9 @@ pub mod search_scope;
 #[allow(clippy::module_inception)]
 pub mod services;
 
+// Cohesive per-area services, each owning only the ports it needs.
+pub mod notification_service;
+
 // Free helper functions, one per file.
 pub mod escalate_to_operator;
 pub mod post_matches;
