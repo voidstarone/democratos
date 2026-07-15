@@ -1,14 +1,6 @@
+use domain::{BotSignals, DemosId, Timestamp, UserId};
 
-use std::collections::HashSet;
-
-use domain::{
-    bot_score, is_likely_bot, BotSignals,
-    DemosId,
-    ReportReason, ReportTarget, Timestamp, UserId,
-};
-
-
-use crate::{Result, StoreError};
+use crate::Result;
 
 use super::member_metrics::MemberMetrics;
 
@@ -37,56 +29,16 @@ impl Services {
         self.metrics_service().member_metrics(user, demos).await
     }
 
-    /// Assemble behavioural signals and, if they cross the threshold, file an
-    /// automatic bot report (unless one is already open for this user).
-    pub(super) async fn run_bot_check(&self, author: UserId, demos: DemosId, now: Timestamp) -> Result<()> {
-        let signals = self.bot_signals(author, demos, now).await?;
-        if !is_likely_bot(&signals) {
-            return Ok(());
-        }
-        // Folds into any open report already on this user; `add_flag` ignores a
-        // duplicate Bot flag if the detector fires again.
-        self.moderation_service()
-            .file_or_merge_flag(
-                demos,
-                None,
-                ReportTarget::User(author),
-                ReportReason::Bot,
-                &format!("automatic: bot score {}", bot_score(&signals)),
-                now,
-            )
-            .await?;
-        Ok(())
-    }
-
+    /// Assemble a user's behavioural bot signals. The logic now lives in
+    /// [`ContentService`](super::content_service::ContentService) alongside the bot
+    /// check that consumes it; this delegator keeps `services.bot_signals()`
+    /// working for call sites not yet migrated off the `Services` aggregator.
     pub async fn bot_signals(
         &self,
         author: UserId,
         demos: DemosId,
         now: Timestamp,
     ) -> Result<BotSignals> {
-        let user = self.users.get(author).await?.ok_or(StoreError::NotFound)?;
-        let posts = self.posts.list_by_author(demos, author).await?;
-        let hour_ago = Timestamp(now.0 - 3600);
-
-        let recent_posts = posts.iter().filter(|p| p.created_at >= hour_ago).count() as u32;
-        let recent_comments = self
-            .comments
-            .count_by_author_since(author, hour_ago)
-            .await? as u32;
-
-        let distinct: HashSet<(String, String)> = posts
-            .iter()
-            .map(|p| (p.title.clone(), p.text_content()))
-            .collect();
-        let duplicate_actions = (posts.len() as u32).saturating_sub(distinct.len() as u32);
-        let demos_spammed = self.posts.distinct_demos_by_author(author).await? as u32;
-
-        Ok(BotSignals {
-            account_age_days: user.account_age_days(now),
-            actions_last_hour: recent_posts + recent_comments,
-            duplicate_actions,
-            demos_spammed,
-        })
+        self.content_service().bot_signals(author, demos, now).await
     }
 }
