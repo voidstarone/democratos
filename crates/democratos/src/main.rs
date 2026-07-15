@@ -12,6 +12,7 @@ mod build_notifier;
 mod build_services;
 mod cli;
 mod fed;
+mod init_logging;
 mod issuer_command;
 mod media_guard_config;
 mod media_kind;
@@ -52,6 +53,11 @@ use crate::top::Top;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Wire the `tracing` facade to a log file before anything else runs, so
+    // operator-critical events (e.g. the CSAM-preservation alert) are recorded
+    // instead of silently dropped. See `init_logging` for the path/level knobs.
+    init_logging::init_logging()?;
+
     let cli = Cli::parse();
 
     // Trusted-issuer key management is offline (root keygen / certify) or touches
