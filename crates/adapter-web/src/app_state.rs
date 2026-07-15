@@ -3,7 +3,12 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use app::{AccountAuthenticator, AccountMinter, GovernanceWrites, Services, SessionSigner};
+use app::{
+    AccountAuthenticator, AccountMinter, AccountService, BlockingService, ContentService,
+    FoundingService, GovernanceService, GovernanceWrites, InviteService, MembershipService,
+    MetricsService, ModerationService, NotificationService, ProfileService, SearchService,
+    SensitiveReviewService, Services, SessionSigner,
+};
 use ipnet::IpNet;
 
 /// Shared handler state: the application services (reads + non-federated
@@ -12,6 +17,23 @@ use ipnet::IpNet;
 #[derive(Clone)]
 pub struct AppState {
     pub services: Services,
+    /// Per-area use-case services, injected individually. These replace the
+    /// former `services` god object for use-case calls; `services` itself remains
+    /// only for the raw-store reaches a later phase will migrate. Field names
+    /// match [`app::ServiceSet`].
+    pub accounts: Arc<AccountService>,
+    pub blocking: Arc<BlockingService>,
+    pub profile: Arc<ProfileService>,
+    pub search: Arc<SearchService>,
+    pub notifications: Arc<NotificationService>,
+    pub metrics: Arc<MetricsService>,
+    pub invites: Arc<InviteService>,
+    pub sensitive: Arc<SensitiveReviewService>,
+    pub membership: Arc<MembershipService>,
+    pub founding: Arc<FoundingService>,
+    pub moderation: Arc<ModerationService>,
+    pub governance: Arc<GovernanceService>,
+    pub content: Arc<ContentService>,
     /// Where governance ballots go. Single-box this runs locally; federated it
     /// routes to the owning node. See [`app::GovernanceWrites`].
     pub writes: Arc<dyn GovernanceWrites>,

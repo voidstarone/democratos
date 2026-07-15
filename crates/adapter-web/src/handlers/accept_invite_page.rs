@@ -23,7 +23,7 @@ pub async fn accept_invite_page(
     Query(query): Query<AcceptQuery>,
 ) -> Response {
     let lang = resolve_lang(&headers);
-    let request = match state.services.validate_invite_token(&query.token).await {
+    let request = match state.invites.validate_invite_token(&query.token).await {
         Ok(request) => request,
         Err(_) => {
             return render_error(

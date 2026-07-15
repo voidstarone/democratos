@@ -33,7 +33,7 @@ pub async fn review_queue_page(
     let lang = resolve_lang(&headers);
 
     let now = state.services.clock.now();
-    let items = match state.services.list_pending_invites().await {
+    let items = match state.invites.list_pending_invites().await {
         Ok(pending) => pending
             .into_iter()
             .map(|r| InviteQueueItem {

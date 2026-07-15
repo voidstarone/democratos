@@ -33,7 +33,7 @@ pub async fn accept_invite(
 
     // The token is the authority for *which* email this account gets — re-check it
     // and read the email from the stored request, not from anything the client sent.
-    let request = match state.services.validate_invite_token(&form.token).await {
+    let request = match state.invites.validate_invite_token(&form.token).await {
         Ok(request) => request,
         Err(_) => {
             return render_error(
@@ -53,7 +53,7 @@ pub async fn accept_invite(
             // Consume the invite so the link can't be reused. If this write fails
             // the account still exists and the email is now taken, so a replay
             // would be rejected on uniqueness anyway — log and proceed.
-            if let Err(e) = state.services.mark_invite_accepted(request.id).await {
+            if let Err(e) = state.invites.mark_invite_accepted(request.id).await {
                 eprintln!("invite {} accepted but not marked consumed: {e}", request.id);
             }
             redirect_with_cookie(

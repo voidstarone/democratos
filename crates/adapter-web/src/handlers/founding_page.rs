@@ -24,7 +24,7 @@ pub async fn founding_page(
 ) -> Response {
     let lang = resolve_lang(&headers);
     let user = current_user(&state, &headers).await;
-    let Ok(Some(p)) = state.services.founding(FoundingId(id)).await else {
+    let Ok(Some(p)) = state.founding.founding(FoundingId(id)).await else {
         return render_error(lang, user.map(|u| u.handle), "no such founding".to_string());
     };
     let viewer_id = user.as_ref().map(|u| u.id);

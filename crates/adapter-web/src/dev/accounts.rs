@@ -21,7 +21,7 @@ pub async fn accounts(State(state): State<AppState>, headers: HeaderMap) -> Resp
         .map(|(id, _expires_at)| id);
     // Only the franchise-barred puppet accounts are switchable, so the bar lists
     // exactly those — never a real member — matching what `switch` will accept.
-    let users = state.services.list_users().await.unwrap_or_default();
+    let users = state.accounts.list_users().await.unwrap_or_default();
     let users: Vec<_> = users
         .iter()
         .filter(|u| u.is_franchise_barred)

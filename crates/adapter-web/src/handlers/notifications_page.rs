@@ -40,7 +40,7 @@ pub async fn notifications_page(State(state): State<AppState>, headers: HeaderMa
     }
 
     // Seeing the list clears the unread badge.
-    let _ = state.services.mark_notifications_seen(user.id).await;
+    let _ = state.notifications.mark_notifications_seen(user.id).await;
 
     render(NotificationsView {
         t: lang.strings(),

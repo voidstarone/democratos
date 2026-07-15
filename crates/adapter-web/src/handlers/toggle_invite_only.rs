@@ -32,7 +32,7 @@ pub async fn toggle_invite_only(
     }
     // The toggle submits `enabled=on` to turn it on; its absence means off.
     let enable = form.enabled.is_some();
-    match state.services.set_invite_only(enable).await {
+    match state.invites.set_invite_only(enable).await {
         Ok(()) => {
             // Persist succeeded — flip the hot-path flag to match.
             state.invite_only.store(enable, Ordering::Relaxed);

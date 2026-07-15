@@ -18,7 +18,7 @@ pub async fn join(
 ) -> Response {
     let lang = resolve_lang(&headers);
     let (user, demos) = require_user_and_demos!(state, headers, lang, slug);
-    if let Err(e) = state.services.join(user.id, demos.id).await {
+    if let Err(e) = state.membership.join(user.id, demos.id).await {
         return render_error(lang, Some(user.handle), e.to_string());
     }
     Redirect::to(&format!("/d/{slug}")).into_response()

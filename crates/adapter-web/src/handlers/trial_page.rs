@@ -80,7 +80,7 @@ async fn build_trial_view(
 
     // The public gallery discussion, oldest first.
     let mut comments = Vec::new();
-    for c in state.services.trial_comments(trial.id).await? {
+    for c in state.moderation.trial_comments(trial.id).await? {
         comments.push(crate::views::trial_comment_view::TrialCommentView {
             by: handle_of(state, c.author).await,
             body: c.body,

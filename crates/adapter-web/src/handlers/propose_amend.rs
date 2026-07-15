@@ -28,7 +28,7 @@ pub async fn propose_amend(
             min_contribution: form.min_contribution,
         },
     };
-    match state.services.open_proposal(user.id, demos.id, kind).await {
+    match state.governance.open_proposal(user.id, demos.id, kind).await {
         Ok(_) => Redirect::to(&format!("/d/{slug}")).into_response(),
         Err(e) => render_error(lang, Some(user.handle), e.to_string()),
     }

@@ -33,7 +33,7 @@ pub async fn request_invite(
     let (csrf_token, set_cookie) = issue_csrf(&headers, state.secure_cookies);
 
     let note = (!form.note.trim().is_empty()).then(|| form.note.trim());
-    match state.services.request_invite(&form.email, note).await {
+    match state.invites.request_invite(&form.email, note).await {
         Ok(()) => render_with_cookie(
             RequestInviteView {
                 t: lang.strings(),

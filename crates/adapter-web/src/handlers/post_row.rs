@@ -41,9 +41,9 @@ pub(crate) async fn post_row(
     let thumb = p.primary_media().map(|m| m.url.clone());
     let thumb_is_video = p.primary_media().map(|m| m.is_video).unwrap_or(false);
     let snippet = snippet_of(p);
-    let score = state.services.post_score(p.id).await.unwrap_or(0);
+    let score = state.content.post_score(p.id).await.unwrap_or(0);
     let viewer_vote = match viewer {
-        Some(u) => state.services.user_post_vote(p.id, u).await.unwrap_or(None),
+        Some(u) => state.content.user_post_vote(p.id, u).await.unwrap_or(None),
         None => None,
     };
     PostRow {

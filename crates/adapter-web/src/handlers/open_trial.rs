@@ -23,7 +23,7 @@ pub async fn open_trial(
     };
     // Authorization (member/voter of the report's community) is enforced in the
     // use-case; the handler only needs to supply the acting user.
-    match state.services.open_trial(user.id, ReportId(id)).await {
+    match state.moderation.open_trial(user.id, ReportId(id)).await {
         Ok(t) => Redirect::to(&format!("/trial/{}", t.id.0)).into_response(),
         Err(e) => render_error(lang, Some(user.handle), e.to_string()),
     }

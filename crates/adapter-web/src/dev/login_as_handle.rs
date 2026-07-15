@@ -29,7 +29,7 @@ pub async fn login_as_handle(state: &AppState, handle: &str) -> Response {
             )
                 .into_response()
         }
-        Ok(None) => match state.services.register_barred_user(handle).await {
+        Ok(None) => match state.accounts.register_barred_user(handle).await {
             Ok(u) => u,
             Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
         },

@@ -23,7 +23,7 @@ pub async fn review_page(State(state): State<AppState>, headers: HeaderMap) -> R
     let Some(user) = current_user(&state, &headers).await else {
         return render_error(lang, None, "sign in first".to_string());
     };
-    let cases = match state.services.list_review_queue(user.id).await {
+    let cases = match state.sensitive.list_review_queue(user.id).await {
         Ok(c) => c,
         Err(e) => return render_error(lang, Some(user.handle), e.to_string()),
     };

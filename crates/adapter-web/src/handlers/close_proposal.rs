@@ -38,7 +38,7 @@ pub async fn close_proposal(
         );
     }
 
-    if let Err(e) = state.services.close_proposal(pid).await {
+    if let Err(e) = state.governance.close_proposal(pid).await {
         return render_error(lang, Some(user.handle), e.to_string());
     }
     redirect_to_demos(&state, pid).await

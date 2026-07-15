@@ -29,7 +29,7 @@ pub async fn profile_page(
     let viewer_user = current_user(&state, &headers).await;
     let viewer = viewer_user.as_ref().map(|u| u.handle.clone());
 
-    let user = match state.services.user_by_handle(&handle).await {
+    let user = match state.accounts.user_by_handle(&handle).await {
         Ok(Some(u)) => u,
         Ok(None) => return render_error(lang, viewer, "no such user".to_string()),
         Err(e) => return render_error(lang, viewer, e.to_string()),
@@ -49,7 +49,7 @@ pub async fn profile_page(
     let mut comments = Vec::new();
 
     if show_comments {
-        match state.services.comments_by_author(user.id).await {
+        match state.profile.comments_by_author(user.id).await {
             Ok(cs) => {
                 comments = cs
                     .into_iter()
@@ -62,7 +62,7 @@ pub async fn profile_page(
             Err(e) => return render_error(lang, viewer, e.to_string()),
         }
     } else {
-        match state.services.posts_by_author(user.id).await {
+        match state.profile.posts_by_author(user.id).await {
             Ok(ps) => {
                 posts = ps
                     .into_iter()

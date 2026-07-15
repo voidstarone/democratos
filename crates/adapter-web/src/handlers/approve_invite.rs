@@ -36,7 +36,7 @@ pub async fn approve_invite(
     let Some(id) = form.id else {
         return admin_redirect(&form.key, "error");
     };
-    let code = match state.services.approve_invite(InviteId(id)).await {
+    let code = match state.invites.approve_invite(InviteId(id)).await {
         Ok(()) => "approved",
         Err(ApproveInviteError::Notify(_)) => "email-failed",
         Err(ApproveInviteError::NotPending) => "not-pending",

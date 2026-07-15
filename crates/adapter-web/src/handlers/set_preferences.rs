@@ -36,7 +36,7 @@ pub async fn set_preferences(
     let wants_mentions = form.alert_mentions.is_some();
     let wants_jury = form.alert_jury.is_some();
     let wants_trial_comments = form.alert_trial_comments.is_some();
-    let paging_saved = state.services.set_feed_paging(user.id, paging).await.is_ok();
+    let paging_saved = state.accounts.set_feed_paging(user.id, paging).await.is_ok();
     let review_saved = state
         .services
         .set_sensitive_reviewer(user.id, wants_review)

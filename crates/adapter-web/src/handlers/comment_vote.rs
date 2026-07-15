@@ -47,7 +47,7 @@ pub async fn comment_vote(
         .unwrap_or(None);
     let target = if current == clicked { None } else { clicked };
 
-    match state.services.vote_comment(cid, user.id, target).await {
+    match state.content.vote_comment(cid, user.id, target).await {
         Ok(score) => {
             if enhanced {
                 let vote = match target {

@@ -17,7 +17,7 @@ pub(crate) async fn demos_posts_page(
     page: usize,
     blocked: &HashSet<UserId>,
 ) -> app::Result<(Vec<domain::Post>, bool)> {
-    let mut all = state.services.list_posts(demos).await?;
+    let mut all = state.content.list_posts(demos).await?;
     all.retain(|p| !blocked.contains(&p.author));
     all.sort_by(|a, b| b.created_at.0.cmp(&a.created_at.0));
     Ok(paginate(all, page))

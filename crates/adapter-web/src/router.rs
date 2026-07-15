@@ -33,6 +33,9 @@ pub fn router(
 ) -> Router {
     // One process-wide limiter, shared by the middleware across all connections.
     let limiter = Arc::new(rate_limit::rate_limiter::RateLimiter::new());
+    // Assemble the per-area services once, so each is injected individually
+    // alongside the (still-present) `services` bundle.
+    let set = app::ServiceSet::from_services(&services);
     Router::new()
         .route("/", get(handlers::index::index))
         .route("/top", get(handlers::top_page::top_page))
@@ -172,6 +175,19 @@ pub fn router(
         .layer(from_fn(security_headers))
         .with_state(AppState {
             services,
+            accounts: set.accounts.clone(),
+            blocking: set.blocking.clone(),
+            profile: set.profile.clone(),
+            search: set.search.clone(),
+            notifications: set.notifications.clone(),
+            metrics: set.metrics.clone(),
+            invites: set.invites.clone(),
+            sensitive: set.sensitive.clone(),
+            membership: set.membership.clone(),
+            founding: set.founding.clone(),
+            moderation: set.moderation.clone(),
+            governance: set.governance.clone(),
+            content: set.content.clone(),
             writes,
             minter,
             authenticator,

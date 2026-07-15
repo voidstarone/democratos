@@ -74,9 +74,9 @@ async fn build_post_view(
         .unwrap_or(false);
     let viewer_is_voter = membership.as_ref().map(|m| m.is_voter()).unwrap_or(false);
 
-    let score = state.services.post_score(post_id).await?;
+    let score = state.content.post_score(post_id).await?;
     let viewer_vote = match viewer {
-        Some(u) => state.services.user_post_vote(post_id, u.id).await?,
+        Some(u) => state.content.user_post_vote(post_id, u.id).await?,
         None => None,
     };
 
@@ -105,7 +105,7 @@ async fn build_post_view(
         })
         .collect();
 
-    let tree = build_comment_tree(state.services.comments_for(post_id).await?);
+    let tree = build_comment_tree(state.content.comments_for(post_id).await?);
     let mut flat = Vec::new();
     flatten_comments(&tree, 0, &mut flat);
     let viewer_id = viewer.as_ref().map(|u| u.id);
@@ -115,7 +115,7 @@ async fn build_post_view(
     let mut comments = Vec::new();
     for (c, depth) in flat {
         let is_blocked = blocked.contains(&c.author);
-        let score = state.services.comment_score(c.id).await.unwrap_or(0);
+        let score = state.content.comment_score(c.id).await.unwrap_or(0);
         let viewer_vote = match viewer_id {
             Some(u) => state
                 .services

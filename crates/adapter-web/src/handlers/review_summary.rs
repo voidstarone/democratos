@@ -20,7 +20,7 @@ pub async fn review_summary(State(state): State<AppState>, headers: HeaderMap) -
         .map(|u| u.is_sensitive_reviewer)
         .unwrap_or(false);
     let open = if reviewer {
-        state.services.open_case_count().await.unwrap_or(0)
+        state.sensitive.open_case_count().await.unwrap_or(0)
     } else {
         0
     };

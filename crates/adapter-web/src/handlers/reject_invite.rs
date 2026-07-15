@@ -34,7 +34,7 @@ pub async fn reject_invite(
     let Some(id) = form.id else {
         return admin_redirect(&form.key, "error");
     };
-    let code = match state.services.reject_invite(InviteId(id)).await {
+    let code = match state.invites.reject_invite(InviteId(id)).await {
         Ok(()) => "rejected",
         Err(ApproveInviteError::NotPending) => "not-pending",
         Err(_) => "error",
