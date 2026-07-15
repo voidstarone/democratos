@@ -16,8 +16,11 @@ pub mod services;
 // Cohesive per-area services, each owning only the ports it needs.
 pub mod account_service;
 pub mod blocking_service;
+pub mod founding_service;
 pub mod invite_service;
+pub mod membership_service;
 pub mod metrics_service;
+pub mod moderation_service;
 pub mod notification_service;
 pub mod profile_service;
 pub mod search_service;

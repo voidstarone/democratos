@@ -46,15 +46,16 @@ impl Services {
         }
         // Folds into any open report already on this user; `add_flag` ignores a
         // duplicate Bot flag if the detector fires again.
-        self.file_or_merge_flag(
-            demos,
-            None,
-            ReportTarget::User(author),
-            ReportReason::Bot,
-            &format!("automatic: bot score {}", bot_score(&signals)),
-            now,
-        )
-        .await?;
+        self.moderation_service()
+            .file_or_merge_flag(
+                demos,
+                None,
+                ReportTarget::User(author),
+                ReportReason::Bot,
+                &format!("automatic: bot score {}", bot_score(&signals)),
+                now,
+            )
+            .await?;
         Ok(())
     }
 

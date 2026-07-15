@@ -42,7 +42,7 @@ impl Services {
 
         // Training wheels: no constitutional change while in Seed.
         if kind.decision_class() == domain::DecisionClass::Constitutional
-            && self.phase_of(demos).await? == Phase::Seed
+            && self.membership_service().phase_of(demos).await? == Phase::Seed
         {
             return Err(OpenProposalError::ConstitutionalForbiddenInSeed);
         }
@@ -170,7 +170,8 @@ impl Services {
             let electorate = if demos.weighting_scope.applies_to_proposals()
                 && demos.vote_weighting != VoteWeighting::Equal
             {
-                self.total_voter_weight(p.demos_id, demos.vote_weighting, now)
+                self.moderation_service()
+                    .total_voter_weight(p.demos_id, demos.vote_weighting, now)
                     .await?
             } else {
                 voters

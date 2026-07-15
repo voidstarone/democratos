@@ -32,7 +32,9 @@ impl Services {
         media: Vec<Media>,
         tags: Vec<String>,
     ) -> Result<Post, CreatePostError> {
-        self.require_can_post(author, demos).await?;
+        self.moderation_service()
+            .require_can_post(author, demos)
+            .await?;
         let now = self.clock.now();
         let mut post = self
             .posts
@@ -85,15 +87,16 @@ impl Services {
         if !demos.allows_nsfw {
             // Folds into any open report already on this post (and `add_flag`
             // ignores a duplicate NSFW flag if the scanner re-runs).
-            self.file_or_merge_flag(
-                post.demos_id,
-                None,
-                ReportTarget::Post(post.id),
-                ReportReason::Nsfw,
-                "automatic: NSFW content in a community that forbids it",
-                now,
-            )
-            .await?;
+            self.moderation_service()
+                .file_or_merge_flag(
+                    post.demos_id,
+                    None,
+                    ReportTarget::Post(post.id),
+                    ReportReason::Nsfw,
+                    "automatic: NSFW content in a community that forbids it",
+                    now,
+                )
+                .await?;
         }
         Ok(true)
     }
@@ -107,7 +110,8 @@ impl Services {
         body: &str,
     ) -> Result<Comment, MemberActionError> {
         let post = self.posts.get(post_id).await?.ok_or(StoreError::NotFound)?;
-        self.require_unsanctioned_member(author, post.demos_id)
+        self.moderation_service()
+            .require_unsanctioned_member(author, post.demos_id)
             .await?;
         let now = self.clock.now();
         let comment = self
@@ -149,7 +153,8 @@ impl Services {
         sig: Option<&str>,
     ) -> Result<i64, VotePostError> {
         let post = self.posts.get(post_id).await?.ok_or(StoreError::NotFound)?;
-        self.require_unsanctioned_member(user, post.demos_id)
+        self.moderation_service()
+            .require_unsanctioned_member(user, post.demos_id)
             .await?;
         // Signed by the acting user (the client signs the *resolved* direction it
         // is applying, which it can compute from the vote state it rendered), so a
@@ -193,7 +198,8 @@ impl Services {
             .get(comment.post_id)
             .await?
             .ok_or(StoreError::NotFound)?;
-        self.require_unsanctioned_member(user, post.demos_id)
+        self.moderation_service()
+            .require_unsanctioned_member(user, post.demos_id)
             .await?;
         self.comment_votes.set(comment_id, user, dir).await?;
         // The comment author's popularity just changed; refresh their cache.
