@@ -46,6 +46,15 @@ services:
       # AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:-}"
       DEMOCRATOS_RECOMMEND_INDEX: /tmp/democratos.recindex
       DEMOCRATOS_ADDR: 0.0.0.0:3000
+      # Logging is initialised before anything else, and the default path is
+      # relative to the working directory — which is `/` here, unwritable by the
+      # unprivileged `app` user, so the process dies on startup. Put the log on
+      # the durable volume (owned by `app`) instead.
+      DEMOCRATOS_LOG_FILE: /data/democratos.log
+      # Same relative-path trap as the log file. Kept on the durable `data`
+      # volume and deliberately NOT under /data/media — that directory is served
+      # publicly, and quarantined uploads must not be reachable from it.
+      DEMOCRATOS_QUARANTINE_DIR: /data/quarantine
       # Sign session cookies with a stable secret so sessions survive restarts
       # (and verify across nodes in a federated deployment). LEFT UNSET on purpose:
       # a committed default value would be world-known and let anyone forge a
