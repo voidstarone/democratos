@@ -256,6 +256,29 @@ const EN: Strings = Strings {
     nsfw_label: "NSFW",
     error_heading: "Something went wrong",
     back_communities: "← back to communities",
+    cookies_link: "Privacy & cookies",
+    cookies_heading: "Cookies on this site",
+    cookies_intro: "This site uses only the cookies it needs to work. There is no advertising, \
+        no analytics, and no third-party cookie of any kind. Nothing here follows you to another \
+        site, and no profile is built about you.",
+    cookies_col_name: "Cookie",
+    cookies_col_purpose: "What it does",
+    cookies_col_lifetime: "How long it lasts",
+    cookies_life_session: "Until you close your browser",
+    cookies_life_uid: "30 days, or until you sign out",
+    cookies_session_purpose: "Keeps you signed in after you log in, so each page knows it is \
+        still you. Set only once you sign in.",
+    cookies_csrf_purpose: "Protects the sign-in and registration forms against forged \
+        submissions from other sites.",
+    cookies_lang_purpose: "Remembers the interface language you picked. Set only when you \
+        choose one from the language menu.",
+    cookies_no_tracking: "Because every cookie above is either strictly necessary to run the \
+        service or set only when you actively choose something, none of them requires your \
+        consent — so this site does not show a consent banner. Showing one would imply there is \
+        tracking to opt out of, and there is not.",
+    cookies_control: "You can delete these at any time through your browser's settings, and \
+        signing out clears the session cookie immediately. Deleting them will sign you out and \
+        reset your language back to your browser's preference.",
 };
 
 const ES: Strings = Strings {
@@ -471,4 +494,27 @@ const ES: Strings = Strings {
     nsfw_label: "NSFW",
     error_heading: "Algo salió mal",
     back_communities: "← volver a las comunidades",
+    cookies_link: "Privacidad y cookies",
+    cookies_heading: "Cookies en este sitio",
+    cookies_intro: "Este sitio solo usa las cookies que necesita para funcionar. No hay \
+        publicidad, ni analíticas, ni cookies de terceros de ningún tipo. Nada de lo que hay \
+        aquí te sigue a otros sitios, y no se construye ningún perfil sobre ti.",
+    cookies_col_name: "Cookie",
+    cookies_col_purpose: "Para qué sirve",
+    cookies_col_lifetime: "Cuánto dura",
+    cookies_life_session: "Hasta que cierres el navegador",
+    cookies_life_uid: "30 días, o hasta que cierres sesión",
+    cookies_session_purpose: "Te mantiene con la sesión iniciada, para que cada página sepa que \
+        sigues siendo tú. Solo se establece al iniciar sesión.",
+    cookies_csrf_purpose: "Protege los formularios de inicio de sesión y de registro frente a \
+        envíos falsificados desde otros sitios.",
+    cookies_lang_purpose: "Recuerda el idioma de la interfaz que elegiste. Solo se establece \
+        cuando eliges uno en el menú de idioma.",
+    cookies_no_tracking: "Como todas las cookies anteriores son estrictamente necesarias para \
+        prestar el servicio o se establecen solo cuando eliges algo activamente, ninguna \
+        requiere tu consentimiento, por lo que este sitio no muestra un aviso de \
+        consentimiento. Mostrarlo daría a entender que hay rastreo del que desistir, y no lo hay.",
+    cookies_control: "Puedes borrarlas en cualquier momento desde la configuración de tu \
+        navegador, y cerrar sesión elimina la cookie de sesión de inmediato. Borrarlas cerrará \
+        tu sesión y restablecerá el idioma al de tu navegador.",
 };

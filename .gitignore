@@ -19,7 +19,13 @@ deploy/prod/*.root-seed
 deploy/prod/*.tar.gz
 # Derived recommender indexes and uploaded media.
 *.recindex
-media/
+# NOTE: this MUST stay anchored. A bare `media/` matches at any depth, which
+# silently swallowed `crates/app/src/media/` — the app-layer media source — so
+# those 11 files were never committed and were unrecoverable when lost from
+# disk (the repo declares `pub mod media;` in crates/app/src/lib.rs, so master
+# would not even compile). Anchor to the upload directories only.
+/media/
+/data/media/
 # Build artifacts.
 target/
 .DS_Store

@@ -27,6 +27,7 @@ pub mod comment_on_trial;
 pub mod comment_vote;
 pub mod composer_js;
 pub mod cookie_value;
+pub mod cookies_page;
 pub mod create_account;
 pub mod create_post;
 pub mod create_session;
