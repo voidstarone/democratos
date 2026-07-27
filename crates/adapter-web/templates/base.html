@@ -31,6 +31,17 @@
      uneven gaps space-between creates once items wrap onto a second line. */
   .header-actions { margin-left:auto; }
   main { max-width: 760px; margin: 1.5rem auto; padding: 0 1.25rem; }
+  /* Site footer: currently just the cookie/privacy notice link, which has to be
+     reachable from every page. Pushed to the bottom of short pages so it never
+     floats mid-screen. */
+  body { display:flex; flex-direction:column; min-height:100vh; }
+  main { flex:1 0 auto; }
+  footer { flex-shrink:0; border-top:1px solid var(--line); background:var(--surface);
+           padding:1rem 1.25rem; margin-top:2rem; }
+  .footer-inner { max-width:760px; margin:0 auto; display:flex; gap:1rem; flex-wrap:wrap;
+                  align-items:center; }
+  footer a { color:var(--muted); text-decoration:none; font-size:.88rem; }
+  footer a:hover { color:var(--accent-ink); text-decoration:underline; }
   /* Content links take the brand green, not browser blue, so the whole page
      reads as one palette. Specific components (.post-title, .chip) override. */
   main a { color: var(--accent-ink); text-decoration:none;
@@ -232,6 +243,11 @@
 <main>
 {% block content %}{% endblock %}
 </main>
+<footer>
+  <div class="footer-inner">
+    <a href="/cookies">{{ t.cookies_link }}</a>
+  </div>
+</footer>
 <script>
 // Show the sensitive-content review badge only for opted-in reviewers who have a
 // non-empty queue. The endpoint identifies the caller from the session cookie.

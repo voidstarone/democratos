@@ -79,6 +79,10 @@ pub fn router(
         .route("/account/key", post(handlers::enroll_key::enroll_key))
         // Founding is a two-step petition: name it here, then gather nine
         // sign-offs on the petition's own page before the demos is born.
+        // Cookie/privacy notice — linked from the footer of every page and
+        // readable signed out, so a visitor can see what is stored before
+        // deciding to register.
+        .route("/cookies", get(handlers::cookies_page::cookies_page))
         .route("/found", get(handlers::found_page::found_page))
         .route("/foundings", post(handlers::start_founding::start_founding))
         .route("/found/:id", get(handlers::founding_page::founding_page))

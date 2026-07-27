@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{{ t.cookies_heading }} · Democratos{% endblock %}
+{% block head %}
+<style>
+  .cookies { max-width: 640px; }
+  /* The table is the substance of the notice, so give it room to breathe and
+     let it scroll sideways rather than squashing the purpose column on a
+     phone. */
+  .cookies-table-wrap { overflow-x: auto; margin: 1rem 0; }
+  .cookies-table { border-collapse: collapse; width: 100%; min-width: 30rem; }
+  .cookies-table th, .cookies-table td { text-align: left; vertical-align: top;
+    padding: .6rem .7rem; border-bottom: 1px solid var(--line); }
+  .cookies-table th { font-size: .78rem; letter-spacing: .03em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; }
+  .cookies-table td code { font-size: .92rem; }
+  .cookies-table tr:last-child td { border-bottom: none; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="cookies">
+<h1>{{ t.cookies_heading }}</h1>
+<p>{{ t.cookies_intro }}</p>
+
+<div class="cookies-table-wrap">
+<table class="cookies-table">
+  <thead>
+    <tr>
+      <th scope="col">{{ t.cookies_col_name }}</th>
+      <th scope="col">{{ t.cookies_col_purpose }}</th>
+      <th scope="col">{{ t.cookies_col_lifetime }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>uid</code></td>
+      <td>{{ t.cookies_session_purpose }}</td>
+      <td>{{ t.cookies_life_uid }}</td>
+    </tr>
+    <tr>
+      <td><code>csrf</code></td>
+      <td>{{ t.cookies_csrf_purpose }}</td>
+      <td>{{ t.cookies_life_session }}</td>
+    </tr>
+    <tr>
+      <td><code>lang</code></td>
+      <td>{{ t.cookies_lang_purpose }}</td>
+      <td>{{ t.cookies_life_session }}</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>{{ t.cookies_no_tracking }}</p>
+<p class="muted"><small>{{ t.cookies_control }}</small></p>
+</div>
+{% endblock %}

@@ -7,6 +7,7 @@ pub mod auth_mode;
 pub mod charge_view;
 pub mod comment_row;
 pub mod community_option;
+pub mod cookies_view;
 pub mod demos_feed_fragment_view;
 pub mod demos_list_item;
 pub mod demos_view;

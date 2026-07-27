@@ -249,4 +249,27 @@ pub struct Strings {
     // error
     pub error_heading: &'static str,
     pub back_communities: &'static str,
+    // cookies / privacy notice
+    /// Footer link to the cookie notice, shown on every page.
+    pub cookies_link: &'static str,
+    pub cookies_heading: &'static str,
+    /// Lead paragraph: what this page is and the headline claim (essential only).
+    pub cookies_intro: &'static str,
+    // Column headers of the cookie table.
+    pub cookies_col_name: &'static str,
+    pub cookies_col_purpose: &'static str,
+    pub cookies_col_lifetime: &'static str,
+    /// Lifetime wording for cookies with no `Max-Age` (`csrf`, `lang`) — the
+    /// browser drops them when it closes.
+    pub cookies_life_session: &'static str,
+    /// Lifetime wording for `uid`, whose `Max-Age` mirrors `SESSION_TTL_SECONDS`.
+    pub cookies_life_uid: &'static str,
+    pub cookies_session_purpose: &'static str,
+    pub cookies_csrf_purpose: &'static str,
+    pub cookies_lang_purpose: &'static str,
+    /// Explicit statement that there is no tracking — the reason no consent
+    /// banner is shown.
+    pub cookies_no_tracking: &'static str,
+    /// How to get rid of them (browser controls / signing out).
+    pub cookies_control: &'static str,
 }
